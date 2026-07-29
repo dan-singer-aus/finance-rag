@@ -48,8 +48,10 @@ guide on why a small corpus you have *read* beats a large one you haven't
 
 - `corpus/filings/` — 2–3 companies × Item 1A (Risk Factors) + MD&A + one
   earnings-call transcript each.
-- `corpus/letters/` — six Buffett shareholder letters, chosen by which metrics
-  they ground (moat / capital intensity / pricing power), not by recency.
+- `corpus/letters/` — Buffett shareholder letters, chosen by which ideas they
+  ground (moat / capital intensity / pricing power), not by recency. Fetched and
+  converted by `scripts/fetch_letters.py`; note that Berkshire publishes these in
+  three different formats by era, and only the plain-text years convert cleanly.
 
 ## Status
 
