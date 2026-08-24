@@ -16,6 +16,8 @@ Two languages, one database, split along the learning target:
 | Path | Owns |
 |---|---|
 | `ingest/`, `evals/` (Python) | ingestion, chunking, embedding, retrieval evals |
+| `db/*.py` (Python) | the storage layer — connection + one module per table |
+| `domain/` (Python) | the shared record types both of the above depend on |
 | `web/` (Next.js, TS) | the API route, the read path, the UI |
 | `db/migrations/*.sql` | the schema — **the single source of truth for both** |
 

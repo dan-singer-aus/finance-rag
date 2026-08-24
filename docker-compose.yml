@@ -17,5 +17,21 @@ services:
       timeout: 5s
       retries: 10
 
+  # Browser GUI at http://localhost:8081 — table browser + query tab.
+  pgweb:
+    image: sosedoff/pgweb:latest
+    container_name: finance-rag-pgweb
+    environment:
+      # Reached over the compose network, so the host is the SERVICE NAME `db`
+      # on its INTERNAL port 5432 — not localhost:5434, which is the mapping
+      # for tools running outside Docker (psql, psycopg, the app).
+      DATABASE_URL: postgres://postgres:postgres@db:5432/finance_rag?sslmode=disable
+    ports:
+      - "8081:8081"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:

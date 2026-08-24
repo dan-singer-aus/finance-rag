@@ -20,3 +20,6 @@ build/
 .DS_Store
 *.pem
 npm-debug.log*
+
+# working notes — kept local
+docs/

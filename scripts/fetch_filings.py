@@ -161,7 +161,10 @@ def _get(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     time.sleep(REQUEST_SPACING_SECONDS)
     with urllib.request.urlopen(request, timeout=60) as response:
-        return response.read()
+        # urlopen's return type is a union, so .read() is Any. Annotating the
+        # local pins it without copying the payload, which bytes() would.
+        body: bytes = response.read()
+        return body
 
 
 def _promote_styled_emphasis(raw: str) -> str:
@@ -173,7 +176,14 @@ def _promote_styled_emphasis(raw: str) -> str:
     """
     soup = BeautifulSoup(raw, "html.parser")
     for span in soup.find_all("span"):
-        style = (span.get("style") or "").replace(" ", "").lower()
+        # BeautifulSoup returns a LIST for multi-valued attributes, so .get() is
+        # `str | AttributeValueList`. `style` isn't multi-valued by default, which
+        # is why this never fired — but the list form is legal, and .replace()
+        # doesn't exist on it. Normalise rather than assume.
+        raw_style = span.get("style") or ""
+        if not isinstance(raw_style, str):
+            raw_style = ";".join(raw_style)
+        style = raw_style.replace(" ", "").lower()
         # 600+ covers the semibold weights filers occasionally use; `bold` is the
         # keyword form. Neither appeared in the sampled filings, but both are legal
         # CSS and cost nothing to accept.
