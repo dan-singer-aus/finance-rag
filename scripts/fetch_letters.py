@@ -48,7 +48,9 @@ def _get(url: str) -> bytes | None:
         with urllib.request.urlopen(request, timeout=30) as response:
             if response.status != 200:
                 return None
-            return response.read()
+            # See fetch_filings._get — .read() is Any off a union return type.
+            body: bytes = response.read()
+            return body
     except (urllib.error.URLError, TimeoutError):
         # A URL that doesn't resolve is an EXPECTED outcome here — this function
         # probes candidate patterns, so misses are normal control flow, not faults.
