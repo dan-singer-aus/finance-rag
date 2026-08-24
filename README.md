@@ -16,6 +16,8 @@ Two languages, one database, split along the learning target:
 | Path | Owns |
 |---|---|
 | `ingest/`, `evals/` (Python) | ingestion, chunking, embedding, retrieval evals |
+| `db/*.py` (Python) | the storage layer — connection + one module per table |
+| `domain/` (Python) | the shared record types both of the above depend on |
 | `web/` (Next.js, TS) | the API route, the read path, the UI |
 | `db/migrations/*.sql` | the schema — **the single source of truth for both** |
 
@@ -48,8 +50,10 @@ guide on why a small corpus you have *read* beats a large one you haven't
 
 - `corpus/filings/` — 2–3 companies × Item 1A (Risk Factors) + MD&A + one
   earnings-call transcript each.
-- `corpus/letters/` — six Buffett shareholder letters, chosen by which metrics
-  they ground (moat / capital intensity / pricing power), not by recency.
+- `corpus/letters/` — Buffett shareholder letters, chosen by which ideas they
+  ground (moat / capital intensity / pricing power), not by recency. Fetched and
+  converted by `scripts/fetch_letters.py`; note that Berkshire publishes these in
+  three different formats by era, and only the plain-text years convert cleanly.
 
 ## Status
 

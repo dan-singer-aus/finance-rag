@@ -11,23 +11,24 @@ CREATE TABLE sources (
     id          bigserial PRIMARY KEY,
     corpus      text NOT NULL CHECK (corpus IN ('filings', 'letters')),
     company     text,                 -- NULL for letters (Berkshire is implicit)
-    doc_type    text NOT NULL,        -- '10-K' | 'transcript' | 'shareholder-letter'
+    doc_type    text NOT NULL,       
     title       text NOT NULL,
+    section     text,                 
     fiscal_year int,
     source_url  text,
+    ticker      text,
+    cik         int,
+    period_end  date,
     created_at  timestamptz NOT NULL DEFAULT now(),
 
-    UNIQUE (corpus, company, doc_type, title, fiscal_year)
+    UNIQUE NULLS NOT DISTINCT (corpus, ticker, fiscal_year, section)
 );
 
--- A retrievable chunk. `section` lives here, not on sources, because filings are
--- chunked section-aware — one source doc yields chunks from different sections.
 CREATE TABLE chunks (
     id          bigserial PRIMARY KEY,
     source_id   bigint NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
     chunk_index int NOT NULL,         -- position within the source; keeps order recoverable
     chunk_text  text NOT NULL,
-    section     text,                 -- 'Item 1A' | 'MD&A' | NULL for continuous prose
     embedding   vector(1536),         -- ⚠️ dimension is model-coupled: 1536 = OpenAI
                                       -- text-embedding-3-small. Changing model = new migration.
     created_at  timestamptz NOT NULL DEFAULT now(),
@@ -35,10 +36,8 @@ CREATE TABLE chunks (
     UNIQUE (source_id, chunk_index)
 );
 
--- Metadata-filter support (company / year / section / corpus pre-filtering).
 CREATE INDEX chunks_source_id_idx ON chunks (source_id);
 CREATE INDEX sources_corpus_idx   ON sources (corpus);
-CREATE INDEX sources_company_year_idx ON sources (company, fiscal_year);
 
 -- ---------------------------------------------------------------------------
 -- Vector index — DELIBERATELY NOT CREATED YET. Two reasons, both worth knowing:

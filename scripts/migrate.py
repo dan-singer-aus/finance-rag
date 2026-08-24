@@ -1,6 +1,11 @@
 """Apply pending .sql migrations from db/migrations, in filename order.
 
-Ancillary tooling — not learning-target code. Run with: uv run migrate
+Ancillary tooling — not learning-target code.
+
+Run with: uv run python scripts/migrate.py
+
+(Not `uv run migrate` — this project sets `package = false`, so there is no
+console-script entry point for uv to resolve.)
 """
 
 import os
