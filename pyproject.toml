@@ -32,7 +32,7 @@ pythonpath = ["."]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["db", "domain", "ingest", "embedding.py", "scripts", "retrieval"]
+files = ["db", "domain", "ingest", "embedding.py", "scripts", "retrieval", "evals", "grounding"]
 
 # Every function must be annotated, and bodies are checked rather than skipped.
 # Without these two, mypy silently ignores any function missing annotations —
