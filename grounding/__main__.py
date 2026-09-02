@@ -84,11 +84,7 @@ def _format_best_chunk_in_corpus(chunks: list[RetrievedChunk], corpus: Corpus) -
         return f"no chunks for {corpus} returned"
 
     top = in_corpus[0]  # search() returns them score-ordered
-    if top.corpus == "letters":
-        provenance = top.title
-    else:
-        provenance = f"{top.company} FY{top.fiscal_year} {top.doc_type} {top.section}"
-    return f"{top.score:.3f}  {provenance}  #{top.chunk_index}"
+    return f"{top.score:.3f}  {top.provenance}  #{top.chunk_index}"
 
 
 if __name__ == "__main__":
