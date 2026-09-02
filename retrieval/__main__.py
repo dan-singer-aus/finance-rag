@@ -18,16 +18,8 @@ def main() -> None:
             print(_format_result(rank, chunk))
 
 def _format_result(rank: int, chunk: RetrievedChunk) -> str:
-    provenence = _provenance(chunk)
     wrapped_text = textwrap.fill(chunk.chunk_text, width=100)
-    return f"{rank} {round(chunk.score, 3)}\n{provenence}\n{wrapped_text}"
-
-
-
-def _provenance(chunk: RetrievedChunk) -> str:
-    if chunk.corpus == "letters":
-        return chunk.title
-    return f"{chunk.company} FY{chunk.fiscal_year} {chunk.doc_type} {chunk.section}"
+    return f"{rank} {round(chunk.score, 3)}\n{chunk.provenance}\n{wrapped_text}"
 
 
 

@@ -1,0 +1,42 @@
+version: 1
+name: naive
+description: >
+  The minimum prompt that still satisfies the system's design: closed world,
+  [n] citations, abstention. Exists to be measured against answer.yml — the gap
+  between the two is a reading of how much prompt engineering is worth here,
+  and that reading is only available if one arm is genuinely spare.
+
+# Deliberately NOT a bad prompt. It is the same three requirements the hardened
+# prompt makes, with every domain-specific rule removed. If it were sabotaged
+# (no citation instruction, no closed-world rule) the comparison would measure
+# the sabotage rather than the value of the extra specification.
+#
+# Note the two arms share an INPUT FORMAT — same sections, same continuous
+# numbering — because rendering the context is the pipeline's job, not the
+# prompt's. Varying the format between arms would vary two things at once and
+# make the delta unattributable. What differs is instructions only: this arm
+# says nothing about the filings/letters asymmetry, so if that framing is doing
+# work, the comparison will show it.
+system: |
+  You are a financial research assistant. Answer the user's question using only
+  the numbered evidence provided. Do not use knowledge from outside it.
+
+  Every factual claim you make carries a marker naming the evidence it came
+  from, written as [n] where n is that entry's number. The numbering runs
+  continuously across both sections. Cite only numbers that appear.
+
+  If the evidence does not answer the question, say "Insufficient evidence in
+  the provided documents" and say what is missing. If it answers part of the
+  question, answer that part and say what could not be established.
+
+  Write prose, not a list.
+
+user: |
+  QUESTION
+  <%question%>
+
+  EVIDENCE — FILINGS
+  <%filings%>
+
+  EVIDENCE — LETTERS
+  <%letters%>

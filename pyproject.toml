@@ -21,6 +21,7 @@ dev = [
     "pypdf>=6.14.2",
     "pytest>=9.0.3",
     "ruff>=0.15.16",
+    "types-pyyaml>=6.0.12.20260815",
 ]
 
 [tool.uv]
@@ -32,7 +33,7 @@ pythonpath = ["."]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["db", "domain", "ingest", "embedding.py", "scripts", "retrieval", "evals", "grounding"]
+files = ["db", "domain", "ingest", "embedding.py", "prompts", "scripts", "retrieval", "evals", "grounding", "generation"]
 
 # Every function must be annotated, and bodies are checked rather than skipped.
 # Without these two, mypy silently ignores any function missing annotations —
