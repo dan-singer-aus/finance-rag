@@ -30,3 +30,20 @@ class RetrievedChunk:
     period_end: date | None
     score: float
 
+    @property
+    def provenance(self) -> str:
+        """Where this chunk came from, in one line.
+
+        Derived entirely from the record's own fields — no I/O, no policy — and
+        every consumer wants the same string, so it lives here rather than being
+        re-forked at each call site. It was written out three times (the
+        retrieval CLI, the grounding scoreboard, the generator's evidence
+        block) before that stopped being a coincidence.
+
+        Note the generator's prompt documents this exact format, so changing it
+        changes what the model reads: `prompts/answer.yml` has to move with it.
+        """
+        if self.corpus == "letters":
+            return self.title
+        return f"{self.company} FY{self.fiscal_year} {self.doc_type} {self.section}"
+
