@@ -5,6 +5,10 @@ from domain.chunks import RetrievedChunk
 
 type Entailment = Literal["entailed", "contradicted", "not_stated", "unverifiable"]
 
+@dataclass(frozen=True)
+class Claim:
+    claim: str
+    citations: list[int]
 
 @dataclass(frozen=True)
 class ClaimVerdict:
