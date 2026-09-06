@@ -1,9 +1,7 @@
-from functools import cache
-
-from openai import OpenAI
 
 from domain.answers import GeneratedAnswer
 from domain.chunks import RetrievedChunk
+from llm import model_call as _model_call
 from prompts import load as load_prompt
 
 MODEL = 'gpt-5.5-2026-04-23'
@@ -24,7 +22,7 @@ def generate(question: str, context: list[RetrievedChunk], prompt_name: str = DE
             filings=_format_evidence(filings, 1),
             letters=_format_evidence(letters, len(filings) + 1),
         ),
-        model=MODEL,
+        model=MODEL
     )
 
     return GeneratedAnswer(
@@ -46,21 +44,4 @@ def _format_evidence(chunks: list[RetrievedChunk], start_at: int) -> str:
     return "\n".join(formatted_chunks)
 
 
-@cache
-def _client() -> OpenAI:
-    return OpenAI()
 
-def _model_call(system: str, user: str, model: str) -> str:
-    """Send one system+user pair to the model and return its text.
-
-    Knows nothing about answering — no prompt names, no placeholders, no
-    evidence. That is deliberate: L4's splitter and judge need the identical
-    call, and when the second caller arrives this moves out to a root-level
-    `llm.py` beside `embedding.py` — an adapter no layer owns.
-    """
-    response = _client().responses.create(
-        model=model,
-        instructions=system,
-        input=user,
-    )
-    return response.output_text
