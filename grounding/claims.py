@@ -1,9 +1,10 @@
+import re
+
 from pydantic import BaseModel
 
 from domain.citations import Claim
 from llm import parse_call
 from prompts import load as load_prompt
-import re
 
 MODEL = 'gpt-5.5-2026-04-23'
 SPLIT_PROMPT = 'split'
@@ -26,7 +27,7 @@ def split_claims(answer: str) -> list[Claim]:
         schema=_SplitResult
     )
     return [
-    Claim(claim=c.claim, citations=_citations_in(c.source_sentence))
+    Claim(text=c.claim, citations=_citations_in(c.source_sentence))
     for c in results.claims
 ]
 
