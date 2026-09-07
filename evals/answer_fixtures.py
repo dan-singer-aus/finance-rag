@@ -36,7 +36,7 @@ grid the `ClaimVerdict` type can express:
     entailed          | claim 1              | claim 4  (hygiene failure)
     contradicted      | claim 2  (the worst) | --
     not_stated        | claim 3              | claim 5  (fabrication)
-    unverifiable      | --                   | claim 6  (vague)
+    subjective        | --                   | claim 6  (vague)
 
 The two empty cells are reachable but not interesting: an uncited contradiction
 is just a fabrication with worse luck, and a cited vague claim tests nothing the
@@ -196,7 +196,7 @@ PLANTED_FAULTS = [
     PlantedFault(
         gist="Visa remains well positioned in a rapidly evolving landscape",
         cites=None,
-        entailment="unverifiable",
+        entailment="subjective",
         why=(
             "Not false -- unfalsifiable. There is no state of the world, and no "
             "chunk, that could settle 'well positioned'. It is included because "
@@ -204,7 +204,7 @@ PLANTED_FAULTS = [
             "must force one: score it entailed (chunk [3] is broadly flattering "
             "about Visa's position) and the metric flatters itself, score it "
             "not_stated and the report cries fabrication over boilerplate. "
-            "Neither error is acceptable, which is why 'unverifiable' is a value "
+            "Neither error is acceptable, which is why 'subjective' is a value "
             "on the entailment axis rather than a judgement call left to the "
             "model's mood."
         ),

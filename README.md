@@ -21,11 +21,13 @@ principle, but it cannot testify about a company.
 
 ## Status: in progress
 
-The ingestion, retrieval and generation path works end to end. The evaluation
-layer — the part that measures whether retrieval found the right thing and
-whether the answer is faithful to it — is **partially built**, and the retrieval
-quality work it gates hasn't started. See [Roadmap](#roadmap) for what's
-deliberately not done yet.
+The ingestion, retrieval and generation path works end to end, and so does the
+citation checker that grades what it produces — an answer is decomposed into
+claims, each claim's `[n]` markers are resolved to the chunks they name, and
+each claim is judged against the retrieved context. What the evaluation layer
+still lacks is the other half: **whether retrieval found the right thing in the
+first place** is unmeasured, and the retrieval quality work it gates hasn't
+started. See [Roadmap](#roadmap) for what's deliberately not done yet.
 
 **Working today:**
 
@@ -130,6 +132,20 @@ the model certainly knows from pretraining, because abstention is in both. The
 extra ~2,000 tokens of specification bought citation discipline and attribution —
 not fewer fabrications. The opposite of the intuition, and only visible because
 the spare arm exists.
+
+Once the citation checker existed, that reading could be replaced with a
+measurement. Same question, same retrieved context, both arms:
+
+| | claims | cited | entailed |
+|---|---|---|---|
+| specified arm | 3 | **3/3** | 3/3 |
+| spare arm | 5 | **3/5** | 5/5 |
+
+**Groundedness identical; citation coverage not.** The spare arm put one `[2]`
+at the end of two sentences, leaving the headline figure and the entire driver
+list uncited while being perfectly true — a claim that traces to a real chunk
+but doesn't say so. That is the failure the checker is for, and the effect had
+been predicted in writing before the metric existed to test it.
 
 ---
 
@@ -243,9 +259,11 @@ freely.
 Listed in the order they're being built, because each one needs the measurement
 the previous one provides.
 
-**Evaluation — in progress.** A citation coverage checker (claim decomposition
-is working; resolving markers to chunks and judging entailment are not), then a
-retrieval eval set reporting recall@k against hand-written ground truth. Nothing
+**Evaluation — in progress.** The citation coverage checker runs end to end
+(decompose an answer into claims → resolve each `[n]` to a chunk → judge each
+claim against the retrieved context); what's missing is scoring it repeatedly
+against fixtures rather than reading the output. Then a retrieval eval set
+reporting recall@k against hand-written ground truth. Nothing
 below this line is worth doing before that number exists — every retrieval
 technique is a claimed improvement, and a claimed improvement without a baseline
 is a vibe.
