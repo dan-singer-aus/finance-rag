@@ -1,24 +1,21 @@
 """Runs the evidence linker over every claim in `evals/claim_fixtures.py`.
 
-The instrument for Lab 3, the way `retrieval/__main__.py` is for Lab 2 — five
-hand-checked claims on one screen, so a change to the threshold or the corpus
-rule is visible immediately rather than one query at a time.
+    uv run python -m evals evidence
 
-**This is a scoreboard, not a test suite, and the wording matters.** Two of the
-five fixtures encode judgement calls rather than facts: the letters-only claim
-is explicitly a placeholder for a decision being made now, and the pricing-power
-one is deliberately borderline. So a disagreement might mean the classifier is
-wrong — or it might mean the fixture is. Print `match` / `mismatch`, not
-`PASS` / `FAIL`, because pass/fail language quietly asserts the first reading,
-and the failure mode that invites is real: see red, nudge the threshold until it
-goes green, call it progress. Nothing here can settle that question; L5's metric
-can.
+**Retrieves live**, unlike `score_citations.py`: its fixtures are claims plus
+expected statuses, not chunks, because what it measures is retrieval-and-
+threshold together. Freeze the chunks and it measures nothing.
 
-On a mismatch, print the fixture's `why` alongside the top chunk's score and
-provenance. That pair is the whole diagnostic — why the answer was expected, and
+⚠️ **A scoreboard, not a test suite — the wording matters.** Some fixtures
+encode judgement calls rather than facts, so a disagreement might mean the
+classifier is wrong or might mean the fixture is. Print `match` / `mismatch`,
+never `PASS` / `FAIL`: pass/fail language asserts the first reading, and invites
+the real failure mode — see red, nudge the threshold until it goes green, call
+it progress.
+
+On a mismatch, print the fixture's `why` beside the top chunk's score and
+provenance. That pair is the whole diagnostic: why the answer was expected, and
 what retrieval actually handed the classifier.
-
-Run with: uv run python -m grounding
 """
 
 
@@ -85,7 +82,3 @@ def _format_best_chunk_in_corpus(chunks: list[RetrievedChunk], corpus: Corpus) -
 
     top = in_corpus[0]  # search() returns them score-ordered
     return f"{top.score:.3f}  {top.provenance}  #{top.chunk_index}"
-
-
-if __name__ == "__main__":
-    main()
