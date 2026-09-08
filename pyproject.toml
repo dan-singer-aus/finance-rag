@@ -34,7 +34,10 @@ pythonpath = ["."]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["db", "domain", "ingest", "embedding.py", "prompts", "scripts", "retrieval", "evals", "grounding", "generation", "llm.py"]
+# ⚠️ An explicit list: a new top-level package is SILENTLY unchecked until it is
+# added here. mypy will report "Success" and mean "success on the files I looked
+# at" — which once hid two import bugs in a package that wasn't listed.
+files = ["db", "domain", "ingest", "embedding.py", "prompts", "scripts", "retrieval", "evals", "grounding", "generation", "llm.py", "tests"]
 
 # Every function must be annotated, and bodies are checked rather than skipped.
 # Without these two, mypy silently ignores any function missing annotations —

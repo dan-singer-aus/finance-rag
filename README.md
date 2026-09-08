@@ -201,6 +201,7 @@ corpus/  ──►  ingest/  ──►  ┌────────────�
 | `grounding/` | evidence linking, claim decomposition, citation checking |
 | `prompts/` | prompt library (YAML) + typed loader |
 | `evals/` | fixtures, ground truth, and the scoreboards over them |
+| `tests/` | unit tests for the deterministic layer — no model calls, no database |
 | `llm.py`, `embedding.py` | the two vendor adapters, owned by no layer |
 | `web/` | Next.js app — scaffolded, not built |
 
@@ -284,6 +285,31 @@ Embeddings use `text-embedding-3-small` (1536 dimensions); generation uses a
 pinned GPT-5.5 snapshot. Re-embedding the entire corpus costs well under a cent,
 which is deliberate — it means chunking strategy can be changed and re-measured
 freely.
+
+### Checks
+
+```bash
+uv run ruff check .
+uv run mypy
+uv run pytest -q
+```
+
+The same three run in CI on every push and pull request. They need no database,
+no API key and no network — the suite is around a third of a second.
+
+**The eval suites are deliberately not in CI.** `python -m evals ...` calls
+models: it is non-deterministic, it costs a dollar or two per invocation, and a
+disagreement can mean the fixture is wrong rather than the code. None of that
+belongs in a gate that has to give the same answer twice. So the line is **tests
+for the deterministic layer, scoreboards for the model layer** — which is also
+why the scoreboards print `match` / `mismatch` and never `PASS` / `FAIL`.
+
+What that leaves under test is the part where the real bugs were: resolving `[n]`
+to a chunk by position (it was briefly matching on a chunk's index within its
+source document — both small ints, so the wrong one returns confident, wrong
+answers), the `[0]` marker that would otherwise wrap to the last chunk via
+Python's negative indexing, the support-status rules, and the prompt loader's
+refusal to send a template with an unfilled placeholder.
 
 ---
 
