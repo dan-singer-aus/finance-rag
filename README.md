@@ -21,9 +21,14 @@ principle, but it cannot testify about a company.
 
 ## Status: in progress
 
-The ingestion, retrieval and generation path works end to end. The evaluation
-layer — the part that measures whether retrieval found the right thing and
-whether the answer is faithful to it — is **partially built**, and the retrieval
+The ingestion, retrieval and generation path works end to end, and so does the
+citation checker that grades what it produces — an answer is decomposed into
+claims, each claim's `[n]` markers are resolved to the chunks they name, and
+each claim is judged against the retrieved context. That checker is itself
+scored, against a fixture of six hand-written faults, over repeated runs.
+
+What the evaluation layer still lacks is the other half: **whether retrieval
+found the right thing in the first place** is unmeasured, and the retrieval
 quality work it gates hasn't started. See [Roadmap](#roadmap) for what's
 deliberately not done yet.
 
@@ -39,8 +44,10 @@ uv run python -m retrieval "What drove Visa's net revenue growth in fiscal 2025?
 # Full retrieval + grounded generation, with citations
 uv run python -m generation "Is Visa the capital-light kind of business Buffett favours?"
 
-# Grade a claim against the corpus (evidence linker + support scoreboard)
-uv run python -m grounding
+# Eval suites — retrieval-stage (evidence linker) and generation-stage
+# (citation coverage + entailment). Name the ones you want; there is no
+# run-everything default, because unlike a test suite these cost money.
+uv run python -m evals evidence citations
 ```
 
 **Corpus as ingested:** 5,891 chunks across 26 source documents, reproducible
@@ -131,6 +138,48 @@ extra ~2,000 tokens of specification bought citation discipline and attribution 
 not fewer fabrications. The opposite of the intuition, and only visible because
 the spare arm exists.
 
+Once the citation checker existed, that reading could be replaced with a
+measurement. Same question, same retrieved context, both arms:
+
+| | claims | cited | entailed |
+|---|---|---|---|
+| specified arm | 3 | **3/3** | 3/3 |
+| spare arm | 5 | **3/5** | 5/5 |
+
+**Groundedness identical; citation coverage not.** The spare arm put one `[2]`
+at the end of two sentences, leaving the headline figure and the entire driver
+list uncited while being perfectly true — a claim that traces to a real chunk
+but doesn't say so. That is the failure the checker is for, and the effect had
+been predicted in writing before the metric existed to test it.
+
+### The instrument gets calibrated too — on frozen input
+
+The citation checker is what grades live answers. But a grader whose own
+accuracy is unknown just relocates the trust problem, so it is itself scored
+against a fixture: a hand-written answer with one deliberate fault per cell of
+the grid it can express — cited-and-contradicted, uncited-but-true, cited-but-
+not-stated, and so on — paired with the retrieved context that answer was
+written against, **frozen as literals**.
+
+The freezing is the point. Those faults are defined *relative to those ten
+chunks*: "nothing in the context says this" is only true of that context.
+Retrieve live and the next chunking change swaps the evidence underneath the
+fixture, quietly turning a planted fabrication into a supported claim while the
+scoreboard stays green.
+
+So the two halves of the eval program are deliberately asymmetric — **freeze the
+input when the ground truth is defined relative to it; keep it live when
+retrieval is the thing being measured.** The retrieval-stage suite retrieves
+live for exactly the reason this one doesn't. A consequence worth stating: a
+chunking change *should* move the retrieval numbers and *should not* move this
+one. If it moved both, you could no longer tell the system getting worse from
+the instrument drifting.
+
+It also runs three times rather than once. The claim splitter is a model call,
+and it has been observed returning a different number of claims from identical
+input — so a cell that flips between runs is reported as a different finding
+from a cell that is consistently wrong.
+
 ---
 
 ## Architecture
@@ -151,7 +200,7 @@ corpus/  ──►  ingest/  ──►  ┌────────────�
 | `generation/` | grounded answer generation from a supplied context |
 | `grounding/` | evidence linking, claim decomposition, citation checking |
 | `prompts/` | prompt library (YAML) + typed loader |
-| `evals/` | fixtures and ground truth |
+| `evals/` | fixtures, ground truth, and the scoreboards over them |
 | `llm.py`, `embedding.py` | the two vendor adapters, owned by no layer |
 | `web/` | Next.js app — scaffolded, not built |
 
@@ -243,9 +292,11 @@ freely.
 Listed in the order they're being built, because each one needs the measurement
 the previous one provides.
 
-**Evaluation — in progress.** A citation coverage checker (claim decomposition
-is working; resolving markers to chunks and judging entailment are not), then a
-retrieval eval set reporting recall@k against hand-written ground truth. Nothing
+**Evaluation — half built.** The generation-stage half is done: the citation
+coverage checker (decompose an answer into claims → resolve each `[n]` to a
+chunk → judge each claim against the retrieved context), scored against a frozen
+fixture over repeated runs. The retrieval-stage half — a question set with
+hand-written ground truth, reporting recall@k — is next. Nothing
 below this line is worth doing before that number exists — every retrieval
 technique is a claimed improvement, and a claimed improvement without a baseline
 is a vibe.
