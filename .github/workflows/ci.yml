@@ -1,0 +1,51 @@
+# Lint, type-check and test on every push and pull request.
+#
+# Deliberately runs NO model calls and NO database. The eval suites
+# (`python -m evals ...`) are excluded on purpose: they are measurements, not
+# tests. They are non-deterministic, they cost money per invocation, and a
+# disagreement there can mean the fixture is wrong rather than the code — none
+# of which belongs in a gate that has to give the same answer twice.
+#
+# That is the line this file draws: tests for the deterministic layer,
+# scoreboards for the model layer, run by hand when you want the number.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to a branch cancels the run still going for the previous one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        # Reads .python-version, so CI and local cannot drift.
+        run: uv python install
+
+      - name: Install dependencies
+        # --frozen fails rather than silently resolving a different set, so a
+        # stale uv.lock is a CI failure instead of an untested dependency tree.
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type check
+        run: uv run mypy
+
+      - name: Test
+        run: uv run pytest -q
