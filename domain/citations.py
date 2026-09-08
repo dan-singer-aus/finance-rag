@@ -3,16 +3,21 @@ from typing import Literal
 
 from domain.chunks import RetrievedChunk
 
-type Entailment = Literal["entailed", "contradicted", "not_stated", "unverifiable"]
+type Entailment = Literal["entailed", "contradicted", "not_stated", "subjective"]
 
 @dataclass(frozen=True)
 class Claim:
-    claim: str
+    text: str
     citations: list[int]
 
 @dataclass(frozen=True)
-class ClaimVerdict:
-    claim: str
+class LocatedClaim:
+    claim: Claim
     cited_chunks: list[RetrievedChunk]
+    unresolved_citations: list[int]
+
+@dataclass(frozen=True)
+class ClaimVerdict:
+    located: LocatedClaim
     entailment: Entailment
     reason: str

@@ -1,44 +1,24 @@
 """The prompt library: the `.yml` files beside this module, and the loader.
 
-Ancillary scaffolding — not learning-target code. Same shape and same reason as
-`embedding.py`: a small typed boundary over something vendor- or file-shaped, so
-the rest of the system deals in a record rather than in a dict of `Any`.
+Files are named by role, with the arm as a suffix — `answer.yml`,
+`answer-naive.yml`, `split.yml`, `judge.yml`. Flat until a role grows several
+arms.
 
-Prompts live here rather than inside the package that uses them because prompt
-iteration is cross-cutting: the generator, the L4 splitter and the L4 judge each
-need one, and the comparison harness wants to swap between arms (`answer.yml` vs
-`answer-naive.yml`) without reaching into three packages. They are also content
-— reviewed and diffed as text, not as code.
+⚠️ **Never name a model in a prompt file.** The arms exist to vary *one* thing
+and read the delta; a prompt-plus-model file makes that delta unattributable.
+They also change for different reasons — prompt text is content, model choice is
+operational. `(prompt, model)` is an experiment configuration owned by the
+caller, and which pair produced a result is recorded on the result.
 
-**Loader and content share one package deliberately.** They started as a root
-`prompts.py` module beside a `prompts/` directory, which works only by accident:
-Python resolves a module ahead of a namespace package, so adding an `__init__.py`
-to the directory would have shadowed the module and taken `load` with it. One
-name, one package, no collision — and once something has to interpret the files,
-a package that carries its own loader is the honest shape.
+⚠️ **Substitution is plain `str.replace` on `<%name%>` — do not "improve" it to
+`str.format` or `string.Template`.** `{}` and `$` both occur in financial prose
+("$29.0 billion"), so both of those would assign meaning to characters the
+corpus contains. `str.replace` assigns meaning to nothing.
 
-**Nothing here names a model.** A model in a prompt file couples two things that
-must vary independently: the answer arms exist to change *one* variable and read
-the delta, and a prompt-plus-model file makes that delta unattributable. They
-also change for different reasons — prompt text is content, model choice is
-operational (cost, latency, deprecation). `(prompt, model)` is an experiment
-configuration owned by the caller; which pair produced a given answer is recorded
-on the result, not on the input.
-
-Files are named by role, with the arm as a suffix: `answer.yml`,
-`answer-naive.yml`, later `split.yml`, `judge.yml`, `rewrite.yml`. Flat until a
-role grows several arms.
-
-**Substitution is plain string replacement on `<%name%>`.** Deliberately not
-`str.format` and not `string.Template`: `{}` and `$` both appear in financial
-prose ("$29.0 billion"), and both of those mechanisms would assign meaning to a
-character the corpus contains. `str.replace` assigns meaning to nothing.
-
-The one non-obvious behaviour is `render`'s check for leftover placeholders. A
-template rendered with a field missing would otherwise reach the model with a
-literal `<%letters%>` in it — which reads as a slightly odd prompt rather than
-as an error, and produces a plausible answer built on absent evidence. That is
-exactly the failure this project exists to catch, so it raises.
+`render` raises on a leftover placeholder. A template rendered with a field
+missing would otherwise reach the model with a literal `<%letters%>` in it,
+which reads as a slightly odd prompt rather than an error — and produces a
+plausible answer built on absent evidence.
 """
 
 import re
