@@ -5,6 +5,7 @@ from domain.chunks import RetrievedChunk
 
 type SupportStatus = Literal["supported", "weak", "unsupported"]
 
+
 @dataclass(frozen=True)
 class ClaimSupport:
     claim: str

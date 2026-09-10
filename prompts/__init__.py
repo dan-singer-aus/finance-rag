@@ -62,7 +62,9 @@ def load(name: str) -> Prompt:
     path = PROMPTS_DIR / f"{name}.yml"
     if not path.exists():
         available = ", ".join(sorted(p.stem for p in PROMPTS_DIR.glob("*.yml")))
-        raise FileNotFoundError(f"no prompt {name!r} in {PROMPTS_DIR} (have: {available})")
+        raise FileNotFoundError(
+            f"no prompt {name!r} in {PROMPTS_DIR} (have: {available})"
+        )
 
     document = yaml.safe_load(path.read_text())
     if not isinstance(document, dict):

@@ -100,7 +100,9 @@ def _looks_tabular(block: str) -> bool:
     # Dot leaders ("General Re ....... $555") are an unambiguous table marker in
     # these documents, and the only reliable one in the PDF years, where extraction
     # collapses column whitespace and the gap test goes blind.
-    if sum(1 for line in lines if re.search(r"\.{4,}", line)) >= max(1, len(lines) * 0.4):
+    if sum(1 for line in lines if re.search(r"\.{4,}", line)) >= max(
+        1, len(lines) * 0.4
+    ):
         return True
 
     gapped = sum(1 for line in lines if re.search(r"\S {3,}\S", line))

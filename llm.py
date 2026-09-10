@@ -6,9 +6,11 @@ from pydantic import BaseModel
 
 load_dotenv()
 
+
 @cache
 def _client() -> OpenAI:
     return OpenAI()
+
 
 def model_call(system: str, user: str, model: str) -> str:
     """Call the OpenAI API to generate a response."""
@@ -18,6 +20,7 @@ def model_call(system: str, user: str, model: str) -> str:
         input=user,
     )
     return response.output_text
+
 
 def parse_call[T: BaseModel](system: str, user: str, model: str, schema: type[T]) -> T:
     """Call the OpenAI API to provide a response in a specified schema."""
@@ -30,4 +33,3 @@ def parse_call[T: BaseModel](system: str, user: str, model: str, schema: type[T]
     if response.output_parsed is None:
         raise ValueError(f"{model} returned no parsed output ...")
     return response.output_parsed
-

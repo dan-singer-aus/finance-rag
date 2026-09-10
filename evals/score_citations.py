@@ -44,15 +44,21 @@ def main() -> None:
         return
 
     matches = 0
-    for verdicts, expected in zip(zip(*usable, strict=True), EXPECTED_VERDICTS, strict=True):
+    for verdicts, expected in zip(
+        zip(*usable, strict=True), EXPECTED_VERDICTS, strict=True
+    ):
         entailments = Counter(verdict.entailment for verdict in verdicts)
-        citations = Counter(tuple(verdict.located.claim.citations) for verdict in verdicts)
+        citations = Counter(
+            tuple(verdict.located.claim.citations) for verdict in verdicts
+        )
 
         entailment_agreed = entailments[expected.entailment]
         citations_agreed = citations[tuple(expected.cites)]
         matched = entailment_agreed == len(usable) and citations_agreed == len(usable)
 
-        _display_result(verdicts[0], expected, entailment_agreed, citations_agreed, len(usable))
+        _display_result(
+            verdicts[0], expected, entailment_agreed, citations_agreed, len(usable)
+        )
         if matched:
             matches += 1
         else:
@@ -67,7 +73,9 @@ def _run_once() -> list[ClaimVerdict]:
     return judge_claims(located, CONTEXT)
 
 
-def _display_run_counts(runs: list[list[ClaimVerdict]], usable: list[list[ClaimVerdict]]) -> None:
+def _display_run_counts(
+    runs: list[list[ClaimVerdict]], usable: list[list[ClaimVerdict]]
+) -> None:
     """How many claims each run produced, and how many runs are scoreable.
 
     The splitter's denominator is itself a measurement — a checker that sees six
@@ -77,7 +85,9 @@ def _display_run_counts(runs: list[list[ClaimVerdict]], usable: list[list[ClaimV
     counts = ", ".join(str(len(run)) for run in runs)
     print(f"claims per run: {counts}  (expected {len(EXPECTED_VERDICTS)})")
     if len(usable) != len(runs):
-        print(f"⚠️  {len(runs) - len(usable)} run(s) excluded — wrong claim count, so positions don't align")
+        print(
+            f"⚠️  {len(runs) - len(usable)} run(s) excluded — wrong claim count, so positions don't align"
+        )
     print()
 
 
@@ -116,8 +126,17 @@ def _display_disagreement(
     reasoning, the tempting fix is to edit the expectation until it matches.
     """
     print(f"      entailment: {_tally(entailments)}")
-    print(f"      citations:  {_tally({_cites(list(k)): n for k, n in citations.items()})}")
-    print(textwrap.fill(expected.why, width=88, initial_indent="      why:  ", subsequent_indent="            "))
+    print(
+        f"      citations:  {_tally({_cites(list(k)): n for k, n in citations.items()})}"
+    )
+    print(
+        textwrap.fill(
+            expected.why,
+            width=88,
+            initial_indent="      why:  ",
+            subsequent_indent="            ",
+        )
+    )
     print()
 
 

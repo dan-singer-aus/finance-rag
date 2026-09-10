@@ -13,10 +13,12 @@ class BaseDocument:
     source_url: str
     content: str
 
+
 @dataclass(frozen=True)
 class LetterDocument(BaseDocument):
     corpus: Literal["letters"]
     author: str
+
 
 @dataclass(frozen=True)
 class FilingDocument(BaseDocument):
@@ -28,6 +30,5 @@ class FilingDocument(BaseDocument):
     period_end: date
     accession: str
 
+
 type Document = LetterDocument | FilingDocument
-
-

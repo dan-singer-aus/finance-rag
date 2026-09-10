@@ -69,7 +69,11 @@ def test_an_uncited_claim_resolves_to_nothing_without_complaint() -> None:
 
 def test_markers_keep_the_order_the_answer_wrote_them_in() -> None:
     """Order is a fact about the generator's output, so it is preserved, not sorted."""
-    context = [chunk(chunk_text="first"), chunk(chunk_text="second"), chunk(chunk_text="third")]
+    context = [
+        chunk(chunk_text="first"),
+        chunk(chunk_text="second"),
+        chunk(chunk_text="third"),
+    ]
 
     located = locate_citations([Claim(text="a claim", citations=[3, 1])], context)
 
@@ -87,4 +91,8 @@ def test_every_claim_gets_a_result_in_order() -> None:
 
     located = locate_citations(claims, context)
 
-    assert [lc.claim.text for lc in located] == ["cites one", "cites nothing", "cites two"]
+    assert [lc.claim.text for lc in located] == [
+        "cites one",
+        "cites nothing",
+        "cites two",
+    ]
