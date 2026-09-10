@@ -5,14 +5,18 @@ from domain.citations import Claim, ClaimVerdict, Entailment, LocatedClaim
 from llm import parse_call
 from prompts import load as load_prompt
 
-JUDGE_MODEL = 'gpt-5.5-2026-04-23'
-JUDGE_PROMPT = 'judge'
+JUDGE_MODEL = "gpt-5.5-2026-04-23"
+JUDGE_PROMPT = "judge"
+
 
 class _Judgement(BaseModel):
     reason: str
     entailment: Entailment
 
-def locate_citations(claims: list[Claim], chunks: list[RetrievedChunk]) -> list[LocatedClaim]:
+
+def locate_citations(
+    claims: list[Claim], chunks: list[RetrievedChunk]
+) -> list[LocatedClaim]:
     """Find the chunks that are cited by each claim"""
 
     results: list[LocatedClaim] = []
@@ -24,10 +28,19 @@ def locate_citations(claims: list[Claim], chunks: list[RetrievedChunk]) -> list[
                 cited_chunks.append(chunks[citation - 1])
             else:
                 unresolved_citations.append(citation)
-        results.append(LocatedClaim(claim=claim, cited_chunks=cited_chunks, unresolved_citations=unresolved_citations))
+        results.append(
+            LocatedClaim(
+                claim=claim,
+                cited_chunks=cited_chunks,
+                unresolved_citations=unresolved_citations,
+            )
+        )
     return results
 
-def judge_claims(located_claims: list[LocatedClaim], chunks: list[RetrievedChunk]) -> list[ClaimVerdict]:
+
+def judge_claims(
+    located_claims: list[LocatedClaim], chunks: list[RetrievedChunk]
+) -> list[ClaimVerdict]:
     verdicts: list[ClaimVerdict] = []
     formatted_evidence = _format_evidence(chunks)
     prompt = load_prompt(JUDGE_PROMPT)
@@ -40,13 +53,15 @@ def judge_claims(located_claims: list[LocatedClaim], chunks: list[RetrievedChunk
                 evidence=formatted_evidence,
             ),
             model=JUDGE_MODEL,
-            schema=_Judgement
+            schema=_Judgement,
         )
-        verdicts.append(ClaimVerdict(
-            located=located,
-            entailment=judgement.entailment,
-            reason=judgement.reason
-        ))
+        verdicts.append(
+            ClaimVerdict(
+                located=located,
+                entailment=judgement.entailment,
+                reason=judgement.reason,
+            )
+        )
 
     return verdicts
 
@@ -56,6 +71,7 @@ def _format_evidence(chunks: list[RetrievedChunk]) -> str:
         return "(none)"
     formatted_chunks = [_format_chunk(chunk) for chunk in chunks]
     return "\n".join(formatted_chunks)
+
 
 def _format_chunk(chunk: RetrievedChunk) -> str:
     return f"<chunk>\n{chunk.provenance}\n{chunk.chunk_text}\n</chunk>"

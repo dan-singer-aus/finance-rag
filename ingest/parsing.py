@@ -8,15 +8,21 @@ from domain.documents import Document, FilingDocument, LetterDocument
 def _require_str(metadata: dict[str, object], key: str) -> str:
     value = metadata.get(key)
     if not isinstance(value, str):
-        raise TypeError(f"frontmatter '{key}': expected str, got {type(value).__name__}")
+        raise TypeError(
+            f"frontmatter '{key}': expected str, got {type(value).__name__}"
+        )
     return value
+
 
 def _require_int(metadata: dict[str, object], key: str) -> int:
     value = metadata.get(key)
     # bool subclasses int, so a YAML `true` would pass a bare isinstance check.
     if not isinstance(value, int) or isinstance(value, bool):
-        raise TypeError(f"frontmatter '{key}': expected int, got {type(value).__name__}")
+        raise TypeError(
+            f"frontmatter '{key}': expected int, got {type(value).__name__}"
+        )
     return value
+
 
 def _require_date(metadata: dict[str, object], key: str) -> date:
     value = metadata.get(key)
@@ -24,10 +30,10 @@ def _require_date(metadata: dict[str, object], key: str) -> date:
     # carries a time, and `period_end` is deliberately a date (2026-08-07) —
     # so a datetime here means the frontmatter changed shape, not that it's fine.
     if not isinstance(value, date) or isinstance(value, datetime):
-        raise TypeError(f"frontmatter '{key}': expected date, got {type(value).__name__}")
+        raise TypeError(
+            f"frontmatter '{key}': expected date, got {type(value).__name__}"
+        )
     return value
-
-
 
 
 def parse_document(post: frontmatter.Post) -> Document:
@@ -58,4 +64,6 @@ def parse_document(post: frontmatter.Post) -> Document:
                 accession=_require_str(post.metadata, "accession"),
             )
         case other:
-            raise ValueError(f"Unknown corpus: {other!r} in document {post.metadata.get('title')!r}") 
+            raise ValueError(
+                f"Unknown corpus: {other!r} in document {post.metadata.get('title')!r}"
+            )
