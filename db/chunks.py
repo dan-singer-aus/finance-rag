@@ -8,9 +8,11 @@ INSERT_CHUNKS_SQL = """
     VALUES (%s, %s, %s, %s)
 """
 
+
 def delete_for_source(conn: Connection, source_id: int) -> None:
     with conn.cursor() as cursor:
         cursor.execute(DELETE_CHUNKS_SQL, (source_id,))
+
 
 def insert_many(conn: Connection, source_id: int, chunks: list[EmbeddedChunk]) -> None:
     rows = [
@@ -19,4 +21,3 @@ def insert_many(conn: Connection, source_id: int, chunks: list[EmbeddedChunk]) -
     ]
     with conn.cursor() as cursor:
         cursor.executemany(INSERT_CHUNKS_SQL, rows)
-

@@ -18,7 +18,6 @@ provenance. That pair is the whole diagnostic: why the answer was expected, and
 what retrieval actually handed the classifier.
 """
 
-
 import textwrap
 
 from db.connection import connection
@@ -45,12 +44,17 @@ def main() -> None:
     _display_summary(matches, len(CLAIM_FIXTURES))
 
 
-def _display_result(fixture: ClaimFixture, support: ClaimSupport, matched: bool) -> None:
+def _display_result(
+    fixture: ClaimFixture, support: ClaimSupport, matched: bool
+) -> None:
     marker = "✓" if matched else "✗"
     claim = textwrap.shorten(fixture.claim, width=60, placeholder="…")
-    print(f"{marker}  {claim:<60}  {fixture.expected_status:<12} | {support.status:<12}")
+    print(
+        f"{marker}  {claim:<60}  {fixture.expected_status:<12} | {support.status:<12}"
+    )
     for corpus in CORPORA:
         print(f"      {corpus}: {_format_best_chunk_in_corpus(support.chunks, corpus)}")
+
 
 def _display_why(fixture: ClaimFixture) -> None:
     print(

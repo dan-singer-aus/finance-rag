@@ -1,17 +1,18 @@
-
 from domain.answers import GeneratedAnswer
 from domain.chunks import RetrievedChunk
 from llm import model_call as _model_call
 from prompts import load as load_prompt
 
-MODEL = 'gpt-5.5-2026-04-23'
-DEFAULT_PROMPT = 'answer'
+MODEL = "gpt-5.5-2026-04-23"
+DEFAULT_PROMPT = "answer"
 
 
-def generate(question: str, context: list[RetrievedChunk], prompt_name: str = DEFAULT_PROMPT) -> GeneratedAnswer:
+def generate(
+    question: str, context: list[RetrievedChunk], prompt_name: str = DEFAULT_PROMPT
+) -> GeneratedAnswer:
     """Generate an answer to a question, given a list of retrieved chunks as context."""
-    filings = [chunk for chunk in context if chunk.corpus == 'filings']
-    letters = [chunk for chunk in context if chunk.corpus == 'letters']
+    filings = [chunk for chunk in context if chunk.corpus == "filings"]
+    letters = [chunk for chunk in context if chunk.corpus == "letters"]
     ordered = filings + letters
 
     prompt = load_prompt(prompt_name)
@@ -22,7 +23,7 @@ def generate(question: str, context: list[RetrievedChunk], prompt_name: str = DE
             filings=_format_evidence(filings, 1),
             letters=_format_evidence(letters, len(filings) + 1),
         ),
-        model=MODEL
+        model=MODEL,
     )
 
     return GeneratedAnswer(
@@ -30,9 +31,10 @@ def generate(question: str, context: list[RetrievedChunk], prompt_name: str = DE
         text=answer_text,
         context=ordered,
         prompt_name=prompt_name,
-        model=MODEL
+        model=MODEL,
     )
-        
+
+
 def _format_evidence(chunks: list[RetrievedChunk], start_at: int) -> str:
     """Format a list of retrieved chunks as evidence for a claim."""
     if not chunks:
@@ -42,6 +44,3 @@ def _format_evidence(chunks: list[RetrievedChunk], start_at: int) -> str:
         for i, chunk in enumerate(chunks, start_at)
     ]
     return "\n".join(formatted_chunks)
-
-
-

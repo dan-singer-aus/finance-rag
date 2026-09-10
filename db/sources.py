@@ -16,15 +16,15 @@ SOURCE_INSERTION_SQL = """
 
 # The INSERT's column list, in order. Named so the helpers stay readable.
 type SourceValues = tuple[
-    str,          # corpus
-    str | None,   # company
-    str,          # doc_type
-    str,          # title
-    str | None,   # section
-    int,          # fiscal_year
-    str,          # source_url
-    str | None,   # ticker
-    int | None,   # cik
+    str,  # corpus
+    str | None,  # company
+    str,  # doc_type
+    str,  # title
+    str | None,  # section
+    int,  # fiscal_year
+    str,  # source_url
+    str | None,  # ticker
+    int | None,  # cik
     date | None,  # period_end
 ]
 
