@@ -9,10 +9,12 @@ class Chunk:
     index: int
     text: str
 
+
 @dataclass(frozen=True)
 class EmbeddedChunk:
     chunk: Chunk
     embedding: list[float]
+
 
 @dataclass(frozen=True)
 class RetrievedChunk:
@@ -46,4 +48,3 @@ class RetrievedChunk:
         if self.corpus == "letters":
             return self.title
         return f"{self.company} FY{self.fiscal_year} {self.doc_type} {self.section}"
-

@@ -26,13 +26,10 @@ SEARCH_SQL = """
     LIMIT %(k)s
 """
 
-def search(conn: Connection, embedding: list[float], corpus: Corpus, k: int) -> list[RetrievedChunk]:
+
+def search(
+    conn: Connection, embedding: list[float], corpus: Corpus, k: int
+) -> list[RetrievedChunk]:
     with conn.cursor(row_factory=class_row(RetrievedChunk)) as cursor:
         cursor.execute(SEARCH_SQL, {"embedding": embedding, "k": k, "corpus": corpus})
         return cursor.fetchall()
-
-
-
-
-
-

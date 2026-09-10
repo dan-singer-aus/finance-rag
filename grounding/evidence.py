@@ -37,11 +37,13 @@ from retrieval.pipeline import retrieve
 
 SUPPORT_THRESHOLDS: dict[Corpus, float] = {"filings": 0.60, "letters": 0.45}
 
+
 def link_evidence(conn: Connection, claim: str) -> ClaimSupport:
     results = retrieve(conn, claim)
     status = _classify(results)
     return ClaimSupport(claim, status, results)
-        
+
+
 def _classify(chunks: list[RetrievedChunk]) -> SupportStatus:
     supported_chunks = [chunk for chunk in chunks if _clears_threshold(chunk)]
     if not supported_chunks:
@@ -50,7 +52,6 @@ def _classify(chunks: list[RetrievedChunk]) -> SupportStatus:
         return "supported"
     return "weak"
 
+
 def _clears_threshold(chunk: RetrievedChunk) -> bool:
     return chunk.score > SUPPORT_THRESHOLDS[chunk.corpus]
-
-

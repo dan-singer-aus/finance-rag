@@ -75,4 +75,3 @@ def _display_evidence(answer: GeneratedAnswer) -> None:
 
 if __name__ == "__main__":
     main()
-

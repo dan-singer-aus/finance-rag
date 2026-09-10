@@ -1,4 +1,3 @@
-
 from db.connection import connection
 from ingest.pipeline import get_files, ingest_document, read_document
 

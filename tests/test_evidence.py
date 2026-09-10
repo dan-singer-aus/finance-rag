@@ -74,7 +74,11 @@ def test_input_order_does_not_change_the_verdict() -> None:
     qualifying = chunk(corpus="filings", score=FILINGS_PASS)
     failing = chunk(corpus="filings", score=FILINGS_FAIL)
 
-    assert _classify([failing, qualifying]) == _classify([qualifying, failing]) == "supported"
+    assert (
+        _classify([failing, qualifying])
+        == _classify([qualifying, failing])
+        == "supported"
+    )
 
 
 def test_no_chunks_at_all_is_unsupported() -> None:
