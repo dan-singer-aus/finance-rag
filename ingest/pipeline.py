@@ -14,8 +14,10 @@ from ingest.parsing import parse_document
 CORPUS_FOLDER = Path(__file__).parent.parent / "corpus"
 
 
-def ingest_document(conn: Connection, document: Document) -> None:
-    chunks = chunk_document(document)
+def ingest_document(
+    conn: Connection, document: Document, *, captions: bool = True
+) -> None:
+    chunks = chunk_document(document, captions=captions)
     vectors = embed([chunk.text for chunk in chunks])
     embedded_chunks = [
         EmbeddedChunk(chunk, vector)
