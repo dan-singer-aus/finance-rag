@@ -27,10 +27,11 @@ claims, each claim's `[n]` markers are resolved to the chunks they name, and
 each claim is judged against the retrieved context. That checker is itself
 scored, against a fixture of six hand-written faults, over repeated runs.
 
-What the evaluation layer still lacks is the other half: **whether retrieval
-found the right thing in the first place** is unmeasured, and the retrieval
-quality work it gates hasn't started. See [Roadmap](#roadmap) for what's
-deliberately not done yet.
+Both halves of the evaluation program now exist. The retrieval-stage half scores
+**recall@k** against hand-written span-level ground truth, which means retrieval
+quality work has a baseline to move rather than a claim to assert. That work is
+underway: table segmentation and a configurable chunker are in, hybrid search and
+reranking are not. See [Roadmap](#roadmap).
 
 **Working today:**
 
@@ -44,14 +45,20 @@ uv run python -m retrieval "What drove Visa's net revenue growth in fiscal 2025?
 # Full retrieval + grounded generation, with citations
 uv run python -m generation "Is Visa the capital-light kind of business Buffett favours?"
 
-# Eval suites — retrieval-stage (evidence linker) and generation-stage
+# Eval suites — retrieval-stage (evidence linker, recall@k) and generation-stage
 # (citation coverage + entailment). Name the ones you want; there is no
 # run-everything default, because unlike a test suite these cost money.
-uv run python -m evals evidence citations
+uv run python -m evals retrieval evidence citations
+
+# One controlled experiment: re-ingest under a chunking config, score it at
+# several k, append a row to results/retrieval_runs.jsonl
+uv run python -m evals.measure --strategy character-splitting --target-size 800 --k 3 10
 ```
 
-**Corpus as ingested:** 5,891 chunks across 26 source documents, reproducible
-and idempotent — three consecutive runs produce an identical store.
+**Corpus as ingested:** 26 source documents. The chunk count is a function of
+the chunker — 4,665 under the structural splitter, 1,427 under recursive
+character splitting at a 2,000-character target — and every ingest is idempotent,
+so repeated runs produce an identical store.
 
 ---
 
@@ -180,6 +187,44 @@ and it has been observed returning a different number of claims from identical
 input — so a cell that flips between runs is reported as a different finding
 from a cell that is consistently wrong.
 
+### recall@3 said the chunker got worse; recall@10 said the opposite
+
+The first chunker split on newlines and stopped, so 44% of chunks were under 120
+characters — section headings and table rows carrying their own embedding and
+competing for top-*k*. Replacing it with recursive character splitting (descend a
+separator ladder, then pack short pieces back up to a size target) cut 4,665
+chunks to 1,427 and moved the median from 298 characters to 1,578.
+
+Recall@3 fell from **4/12 to 1/12**. Scored at k=10 on the same corpus, it rose
+from **4/12 to 5/12**.
+
+| | recall@3 | recall@10 |
+|---|---|---|
+| newline splitter | 4/12 | 4/12 |
+| recursive, 2,000-char target | 1/12 | **5/12** |
+
+Those aren't the same failure. The newline splitter hits a wall — widening the
+window buys nothing, because eight of twelve gold passages aren't in contention
+at all. The recursive splitter puts more of them in contention and then ranks
+them 4th–10th, because a 1,800-character chunk's vector is the average of the
+eight topics inside it. **Packing improved the corpus and degraded the ranking**,
+and the fix for a chunk at rank 8 is a reranker, not a different chunker. Reading
+the @3 column alone would have sent the work in exactly the wrong direction.
+
+### The chunker can destroy the eval's own answer key
+
+Retrieval ground truth is a verbatim excerpt checked by text containment, chosen
+precisely so the fixtures survive a re-chunk without offsets or IDs to maintain.
+The failure mode that buys is subtle: a gold excerpt straddling a chunk boundary
+is inside *no* chunk, so retrieval can never return it, and recall is capped
+below the fixture count for reasons that have nothing to do with retrieval.
+
+Smaller chunks mean more boundaries. At a 400-character target, three of twelve
+gold spans stopped being containable — so that configuration's 2/12 was partly a
+measurement of the instrument. Every run now records its own ceiling alongside
+its score, because a recall figure without one can't distinguish *ranked badly*
+from *no longer findable*.
+
 ---
 
 ## Architecture
@@ -200,7 +245,8 @@ corpus/  ──►  ingest/  ──►  ┌────────────�
 | `generation/` | grounded answer generation from a supplied context |
 | `grounding/` | evidence linking, claim decomposition, citation checking |
 | `prompts/` | prompt library (YAML) + typed loader |
-| `evals/` | fixtures, ground truth, and the scoreboards over them |
+| `evals/` | fixtures, ground truth, the scoreboards over them, and `measure.py` |
+| `results/` | append-only JSONL — one row per measured configuration |
 | `tests/` | unit tests for the deterministic layer — no model calls, no database |
 | `llm.py`, `embedding.py` | the two vendor adapters, owned by no layer |
 | `web/` | Next.js app — scaffolded, not built |
@@ -227,6 +273,15 @@ Dependencies point inward. `domain/` imports nothing and everything imports it.
   are defined relative to *those* chunks, so retrieving live would let a chunker
   change silently swap the context and turn a green scoreboard into a measurement
   of a different question.
+- **Table handling is a shared pre-pass, not part of any chunking strategy.**
+  Documents are partitioned into prose and table blocks before a strategy runs,
+  so comparing two strategies varies one thing. If each chunker did its own table
+  handling, a recall delta couldn't be attributed to either.
+- **A measured configuration is the input to the run, not a note written after
+  it.** `evals/measure.py` takes a config, re-ingests under it, scores, and
+  appends a row — so the recorded config is by construction the one that built
+  the corpus. Hand-pairing a score with a config had already failed silently
+  once here.
 
 ---
 
@@ -318,32 +373,33 @@ refusal to send a template with an unfilled placeholder.
 Listed in the order they're being built, because each one needs the measurement
 the previous one provides.
 
-**Evaluation — half built.** The generation-stage half is done: the citation
-coverage checker (decompose an answer into claims → resolve each `[n]` to a
-chunk → judge each claim against the retrieved context), scored against a frozen
-fixture over repeated runs. The retrieval-stage half — a question set with
-hand-written ground truth, reporting recall@k — is next. Nothing
-below this line is worth doing before that number exists — every retrieval
-technique is a claimed improvement, and a claimed improvement without a baseline
-is a vibe.
+**Evaluation — built.** The generation-stage half is the citation coverage
+checker (decompose an answer into claims → resolve each `[n]` to a chunk → judge
+each claim against the retrieved context), scored against a frozen fixture over
+repeated runs. The retrieval-stage half is recall@k over hand-written span-level
+ground truth, scored live. Nothing below this line was worth doing before those
+numbers existed — every retrieval technique is a claimed improvement, and a
+claimed improvement without a baseline is a vibe.
 
 **Retrieval quality.** Each of these is a known technique with a known failure
 direction, to be adopted only if it moves the number:
 
-- **Better chunking.** The current chunker is deliberately naive — a fixed
-  budget with no packing — and its weaknesses are already visible in real
-  results: a four-word section heading outranks a substantive paragraph, because
-  cosine similarity is length-normalised and a heading that is 100% on-topic
-  points nearer the query than a paragraph that is also about three other
-  things. Section-aware chunking and packing are the obvious next passes.
+- **Better chunking — in progress.** Table segmentation is done (it collapsed
+  ~600 orphaned table rows into 112 labelled blocks, and moved recall@3 by
+  exactly zero). Recursive character splitting with a size target is done and
+  measured. Fixed-window is next, as the structure-blind comparator: if a blind
+  window matches a structure-aware splitter, that is itself the finding. Then
+  semantic chunking, last among the strategies because it is the first one with
+  a threshold to tune and tuning against an uncalibrated metric is how an
+  instrument gets overfitted.
 - **Hybrid search (semantic + BM25).** Pure vector search misses exact terms —
   tickers, product names, figures. Worth noting the failure direction: on the
   one query where the *correct* answer ranked 4th, keyword search would have made
   it worse, because Buffett states the concept in metaphor and has none of the
   query's vocabulary.
-- **Reranking** with a cross-encoder that reads query and chunk together —
-  probably the largest single quality lever after chunking, and the right fix
-  for the metaphor case above.
+- **Reranking** with a cross-encoder that reads query and chunk together — the
+  right fix for the metaphor case above, and for the gold passages currently
+  landing at rank 4–10 rather than in the top 3.
 - **Metadata filters and corpus routing.** Filtering by company, fiscal year,
   section and corpus. A filings-only question currently still spends part of its
   budget on letters chunks.

@@ -27,6 +27,7 @@ check.
 """
 
 import textwrap
+from dataclasses import dataclass
 
 from db.connection import connection
 from domain.chunks import RetrievedChunk
@@ -36,12 +37,31 @@ from retrieval.pipeline import retrieve
 TOP_K = 3
 
 
-def main() -> None:
+@dataclass(frozen=True)
+class RecallResult:
+    """The three numbers a recall run produces. `recall` is a property, not a
+    field — a stored copy could disagree with `hits / spans`."""
+
+    k: int
+    hits: int
+    spans: int
+
+    @property
+    def recall(self) -> float:
+        return self.hits / self.spans
+
+
+def main(k: int = TOP_K) -> RecallResult:
+    """Score recall@k over every fixture, print the report, return the numbers.
+
+    `k` is a parameter so one ingested corpus can be scored at several windows
+    without re-ingesting.
+    """
     hits = 0
     spans = 0
     with connection() as conn:
         for fixture in RECALL_FIXTURES:
-            results = retrieve(conn, fixture.query, k=TOP_K)[:TOP_K]
+            results = retrieve(conn, fixture.query, k=k)[:k]
             fixture_hits = sum(_is_hit(span, results) for span in fixture.spans)
 
             _display_result(fixture, fixture_hits, results)
@@ -49,7 +69,9 @@ def main() -> None:
             hits += fixture_hits
             spans += len(fixture.spans)
 
-    print(f"\nrecall@{TOP_K}: {hits}/{spans} ({hits / spans:.0%})")
+    result = RecallResult(k=k, hits=hits, spans=spans)
+    print(f"\nrecall@{k}: {hits}/{spans} ({result.recall:.0%})")
+    return result
 
 
 def _is_hit(span: GoldSpan, chunks: list[RetrievedChunk]) -> bool:
