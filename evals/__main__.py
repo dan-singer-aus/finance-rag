@@ -30,7 +30,9 @@ from collections.abc import Callable
 
 from evals import score_citations, score_evidence, score_retrieval
 
-SUITES: dict[str, Callable[[], None]] = {
+# `object`, not `None`: a suite may return its numbers for another caller.
+# Dispatch ignores them — printing the report is the suite's job.
+SUITES: dict[str, Callable[[], object]] = {
     "evidence": score_evidence.main,
     "citations": score_citations.main,
     "retrieval": score_retrieval.main,
