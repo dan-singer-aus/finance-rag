@@ -8,16 +8,36 @@ from db.sources import insert_source
 from domain.chunks import EmbeddedChunk
 from domain.documents import Document
 from embedding import embed
-from ingest.chunking import chunk_document
+from ingest.chunking import Chunker, by_characters, chunk_document
 from ingest.parsing import parse_document
 
 CORPUS_FOLDER = Path(__file__).parent.parent / "corpus"
 
 
-def ingest_document(
-    conn: Connection, document: Document, *, captions: bool = True
+def ingest_corpus(
+    conn: Connection,
+    *,
+    captions: bool = True,
+    chunker: Chunker = by_characters,
 ) -> None:
-    chunks = chunk_document(document, captions=captions)
+    """Re-chunk, re-embed and replace every source under one configuration.
+
+    Commits per document, not per run — an idempotent upsert plus a per-document
+    commit is what makes a crashed run restartable.
+    """
+    for file in get_files("letters") + get_files("filings"):
+        ingest_document(conn, read_document(file), captions=captions, chunker=chunker)
+        conn.commit()
+
+
+def ingest_document(
+    conn: Connection,
+    document: Document,
+    *,
+    captions: bool = True,
+    chunker: Chunker = by_characters,
+) -> None:
+    chunks = chunk_document(document, captions=captions, chunker=chunker)
     vectors = embed([chunk.text for chunk in chunks])
     embedded_chunks = [
         EmbeddedChunk(chunk, vector)
