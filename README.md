@@ -7,11 +7,11 @@ system declines rather than guessing when the evidence doesn't support an
 answer.
 
 The premise is that the two corpora play **different roles**. The filings are
-the *subject* — what a company says about itself, and the only thing that can
-establish a fact about that company. The letters are the *lens* — a framework
-for judging what it said. A question like *"what supply-chain risks did Visa
-flag?"* needs only the first. *"Is Visa the capital-light kind of business
-Buffett favours?"* needs both, and needs them kept apart: a letter states a
+the _subject_ — what a company says about itself, and the only thing that can
+establish a fact about that company. The letters are the _lens_ — a framework
+for judging what it said. A question like _"what supply-chain risks did Visa
+flag?"_ needs only the first. _"Is Visa the capital-light kind of business
+Buffett favours?"_ needs both, and needs them kept apart: a letter states a
 principle, but it cannot testify about a company.
 
 > Not investment advice. This is a research and retrieval system over public
@@ -52,7 +52,7 @@ uv run python -m evals retrieval evidence citations
 
 # One controlled experiment: re-ingest under a chunking config, score it at
 # several k, append a row to results/retrieval_runs.jsonl
-uv run python -m evals.measure --strategy character-splitting --target-size 800 --k 3 10
+uv run python -m evals.measure character-splitting --target-size 800 --k 3 10
 ```
 
 **Corpus as ingested:** 26 source documents. The chunk count is a function of
@@ -64,28 +64,28 @@ so repeated runs produce an identical store.
 
 ## What's interesting here
 
-Most of the value in this project has come from things that *didn't* work, and
+Most of the value in this project has come from things that _didn't_ work, and
 from measuring them rather than assuming.
 
 ### A similarity threshold cannot tell you whether a claim is supported
 
 The system grades claims against retrieved evidence. The obvious first
 implementation is a cosine-similarity threshold: if the best chunk scores above
-*x*, the claim is supported. Two separate measurements say that can't work.
+_x_, the claim is supported. Two separate measurements say that can't work.
 
 **The filings scores are flat, and it's a property of the corpus.** Across five
 unrelated test claims, the best-scoring filing chunk spanned a range of **0.022**
 while the letters spanned **0.193** — nearly ten times wider. The cause is
 corpus saturation: every filing chunk is about one of three companies, so any
-claim naming one of them has a nearest neighbour *about that company* whether or
+claim naming one of them has a nearest neighbour _about that company_ whether or
 not it's relevant. Nearest-neighbour search always returns something, and here
 everything is equally close. A single global threshold reads whichever
 distribution is flatter and looks broken for no visible reason. The fix is
 per-corpus thresholds — the concrete form of "similarity scores aren't
 comparable across heterogeneous sources".
 
-**And underneath that: similarity measures aboutness, not agreement.** *"Margins
-rose"* and *"margins fell"* retrieve the same chunks at the same scores. So a
+**And underneath that: similarity measures aboutness, not agreement.** _"Margins
+rose"_ and _"margins fell"_ retrieve the same chunks at the same scores. So a
 claim can be confidently "supported" by a passage that flatly contradicts it,
 and **no threshold value recovers the difference** — the information isn't in the
 number. That's the evidenced case for a model in the loop rather than a bigger
@@ -94,20 +94,20 @@ whether a citation exists at all.
 
 ### Vector search has no "no match"
 
-The first live query was *"What supply-chain risks did Visa flag?"* It returned
+The first live query was _"What supply-chain risks did Visa flag?"_ It returned
 five chunks — all Visa, all from Item 1A, with no metadata filter at all, which
 is real evidence the embeddings are doing their job across 26 documents.
 
 None of them was about supply chain. Checking the source: Visa's FY2025 risk
 factors mention "supply chain" exactly twice, both incidental. The honest answer
-is *"Visa doesn't flag it substantively"* — and nothing in the retrieval output
-says so, because nearest-neighbour search returns exactly *k* rows whatever
+is _"Visa doesn't flag it substantively"_ — and nothing in the retrieval output
+says so, because nearest-neighbour search returns exactly _k_ rows whatever
 exists, and the scores of a good and a bad match aren't visually separable.
 
 The consequence shapes the whole design: a generator **cannot distinguish
 "absent from the corpus" from "absent from the top-k"**, so a retrieval miss
 produces the same fluent, correctly-cited, false sentence as a true absence. And
-the likelier failure isn't fabrication but *over-interpretation* — the retrieved
+the likelier failure isn't fabrication but _over-interpretation_ — the retrieved
 chunks mention "third-party service providers", which a helpful model will
 happily frame as supply-chain risk while every word still traces to a real
 source. A citation checker passes that. **"I don't know" therefore has to be
@@ -127,8 +127,8 @@ uncited, the next kept it whole and reported the same figure as cited. A
 stochastic step was moving a deterministic result.
 
 The fix wasn't a tighter rule or a lower temperature — that reduces the variance
-without removing the dependency on it. Instead the model now returns the *source
-sentence* verbatim and attributes nothing, and marker extraction happens in code
+without removing the dependency on it. Instead the model now returns the _source
+sentence_ verbatim and attributes nothing, and marker extraction happens in code
 with a regex. Every claim from a sentence carries that sentence's markers, so
 the decomposition can wobble freely without moving an answer.
 
@@ -148,10 +148,10 @@ the spare arm exists.
 Once the citation checker existed, that reading could be replaced with a
 measurement. Same question, same retrieved context, both arms:
 
-| | claims | cited | entailed |
-|---|---|---|---|
-| specified arm | 3 | **3/3** | 3/3 |
-| spare arm | 5 | **3/5** | 5/5 |
+|               | claims | cited   | entailed |
+| ------------- | ------ | ------- | -------- |
+| specified arm | 3      | **3/3** | 3/3      |
+| spare arm     | 5      | **3/5** | 5/5      |
 
 **Groundedness identical; citation coverage not.** The spare arm put one `[2]`
 at the end of two sentences, leaving the headline figure and the entire driver
@@ -168,8 +168,8 @@ the grid it can express — cited-and-contradicted, uncited-but-true, cited-but-
 not-stated, and so on — paired with the retrieved context that answer was
 written against, **frozen as literals**.
 
-The freezing is the point. Those faults are defined *relative to those ten
-chunks*: "nothing in the context says this" is only true of that context.
+The freezing is the point. Those faults are defined _relative to those ten
+chunks_: "nothing in the context says this" is only true of that context.
 Retrieve live and the next chunking change swaps the evidence underneath the
 fixture, quietly turning a planted fabrication into a supported claim while the
 scoreboard stays green.
@@ -178,7 +178,7 @@ So the two halves of the eval program are deliberately asymmetric — **freeze t
 input when the ground truth is defined relative to it; keep it live when
 retrieval is the thing being measured.** The retrieval-stage suite retrieves
 live for exactly the reason this one doesn't. A consequence worth stating: a
-chunking change *should* move the retrieval numbers and *should not* move this
+chunking change _should_ move the retrieval numbers and _should not_ move this
 one. If it moved both, you could no longer tell the system getting worse from
 the instrument drifting.
 
@@ -191,17 +191,17 @@ from a cell that is consistently wrong.
 
 The first chunker split on newlines and stopped, so 44% of chunks were under 120
 characters — section headings and table rows carrying their own embedding and
-competing for top-*k*. Replacing it with recursive character splitting (descend a
+competing for top-_k_. Replacing it with recursive character splitting (descend a
 separator ladder, then pack short pieces back up to a size target) cut 4,665
 chunks to 1,427 and moved the median from 298 characters to 1,578.
 
 Recall@3 fell from **4/12 to 1/12**. Scored at k=10 on the same corpus, it rose
 from **4/12 to 5/12**.
 
-| | recall@3 | recall@10 |
-|---|---|---|
-| newline splitter | 4/12 | 4/12 |
-| recursive, 2,000-char target | 1/12 | **5/12** |
+|                              | recall@3 | recall@10 |
+| ---------------------------- | -------- | --------- |
+| newline splitter             | 4/12     | 4/12      |
+| recursive, 2,000-char target | 1/12     | **5/12**  |
 
 Those aren't the same failure. The newline splitter hits a wall — widening the
 window buys nothing, because eight of twelve gold passages aren't in contention
@@ -216,14 +216,14 @@ the @3 column alone would have sent the work in exactly the wrong direction.
 Retrieval ground truth is a verbatim excerpt checked by text containment, chosen
 precisely so the fixtures survive a re-chunk without offsets or IDs to maintain.
 The failure mode that buys is subtle: a gold excerpt straddling a chunk boundary
-is inside *no* chunk, so retrieval can never return it, and recall is capped
+is inside _no_ chunk, so retrieval can never return it, and recall is capped
 below the fixture count for reasons that have nothing to do with retrieval.
 
 Smaller chunks mean more boundaries. At a 400-character target, three of twelve
 gold spans stopped being containable — so that configuration's 2/12 was partly a
 measurement of the instrument. Every run now records its own ceiling alongside
-its score, because a recall figure without one can't distinguish *ranked badly*
-from *no longer findable*.
+its score, because a recall figure without one can't distinguish _ranked badly_
+from _no longer findable_.
 
 ---
 
@@ -236,20 +236,20 @@ corpus/  ──►  ingest/  ──►  ┌────────────�
                             └──────────────┘
 ```
 
-| Path | Owns |
-|---|---|
-| `domain/` | shared record types — stdlib only, depends on nothing |
-| `db/` | storage: connection, one module per table, `search.py`, SQL migrations |
-| `ingest/` | parse → chunk → embed → store, one transaction per document |
-| `retrieval/` | query embedding + vector search + result shaping |
-| `generation/` | grounded answer generation from a supplied context |
-| `grounding/` | evidence linking, claim decomposition, citation checking |
-| `prompts/` | prompt library (YAML) + typed loader |
-| `evals/` | fixtures, ground truth, the scoreboards over them, and `measure.py` |
-| `results/` | append-only JSONL — one row per measured configuration |
-| `tests/` | unit tests for the deterministic layer — no model calls, no database |
-| `llm.py`, `embedding.py` | the two vendor adapters, owned by no layer |
-| `web/` | Next.js app — scaffolded, not built |
+| Path                     | Owns                                                                   |
+| ------------------------ | ---------------------------------------------------------------------- |
+| `domain/`                | shared record types — stdlib only, depends on nothing                  |
+| `db/`                    | storage: connection, one module per table, `search.py`, SQL migrations |
+| `ingest/`                | parse → chunk → embed → store, one transaction per document            |
+| `retrieval/`             | query embedding + vector search + result shaping                       |
+| `generation/`            | grounded answer generation from a supplied context                     |
+| `grounding/`             | evidence linking, claim decomposition, citation checking               |
+| `prompts/`               | prompt library (YAML) + typed loader                                   |
+| `evals/`                 | fixtures, ground truth, the scoreboards over them, and `measure.py`    |
+| `results/`               | append-only JSONL — one row per measured configuration                 |
+| `tests/`                 | unit tests for the deterministic layer — no model calls, no database   |
+| `llm.py`, `embedding.py` | the two vendor adapters, owned by no layer                             |
+| `web/`                   | Next.js app — scaffolded, not built                                    |
 
 Dependencies point inward. `domain/` imports nothing and everything imports it.
 
@@ -262,7 +262,7 @@ Dependencies point inward. `domain/` imports nothing and everything imports it.
   takes its evidence as a parameter and opens no connection. Beyond the obvious
   separation-of-concerns argument, it's what makes an agentic retrieval loop
   possible later: the loop retrieves, grades, rewrites, retrieves again, and
-  then generates *from the set it chose*.
+  then generates _from the set it chose_.
 - **Chunks are derived data and get replaced wholesale.** Updating chunk text
   without re-embedding leaves a row whose vector contradicts its own content,
   and nothing downstream can detect that.
@@ -270,7 +270,7 @@ Dependencies point inward. `domain/` imports nothing and everything imports it.
   evaluation whose score moves when a vendor rotates an alias can't attribute a
   change to your own code.
 - **The eval fixture freezes its retrieved context verbatim.** The planted faults
-  are defined relative to *those* chunks, so retrieving live would let a chunker
+  are defined relative to _those_ chunks, so retrieving live would let a chunker
   change silently swap the context and turn a green scoreboard into a measurement
   of a different question.
 - **Table handling is a shared pre-pass, not part of any chunking strategy.**
@@ -312,7 +312,7 @@ gate redistribution behind a separate agreement, so they're excluded on
 licensing grounds rather than on capability.
 
 The corpus is small on purpose. Chunking means corpus size doesn't compete for
-context — only the top-*k* reaches the model — so the binding constraint isn't
+context — only the top-_k_ reaches the model — so the binding constraint isn't
 size but **evaluability**. Ground truth requires knowing which source genuinely
 holds the best answer, and you can't write that for material you skimmed. A
 corpus you haven't read produces mis-grounded ground truth by construction.
@@ -394,7 +394,7 @@ direction, to be adopted only if it moves the number:
   instrument gets overfitted.
 - **Hybrid search (semantic + BM25).** Pure vector search misses exact terms —
   tickers, product names, figures. Worth noting the failure direction: on the
-  one query where the *correct* answer ranked 4th, keyword search would have made
+  one query where the _correct_ answer ranked 4th, keyword search would have made
   it worse, because Buffett states the concept in metaphor and has none of the
   query's vocabulary.
 - **Reranking** with a cross-encoder that reads query and chunk together — the
@@ -405,7 +405,7 @@ direction, to be adopted only if it moves the number:
   budget on letters chunks.
 - **Query rewriting and HyDE.** Rewriting a vague question into one that matches
   the vocabulary of the section that answers it; generating a hypothetical answer
-  and retrieving against *that* embedding rather than against the question.
+  and retrieving against _that_ embedding rather than against the question.
 
 **Agentic retrieval.** Upgrading the single-pass pipeline into a loop: grade the
 retrieved chunks for relevance, rewrite the query and retry when they fail,
