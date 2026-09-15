@@ -1,7 +1,8 @@
 """Ingest the corpus under one chunking config, score it, append a result row.
 
-    uv run python -m evals.measure --strategy character-splitting --target-size 800
-    uv run python -m evals.measure --strategy by-line --no-captions --k 3 10
+    uv run python -m evals.measure fixed --target-size 400 --overlap 40
+    uv run python -m evals.measure character-splitting --target-size 800 --k 3 10
+    uv run python -m evals.measure by-line --no-captions
 
 Rows go to `results/retrieval_runs.jsonl`, append-only.
 
@@ -11,8 +12,6 @@ one that built the corpus rather than a description of it.
 Not a `SUITES` entry in `evals/__main__.py`: a suite reads the system, this
 replaces every chunk in it.
 
-⚠️ `by-line` ignores `target_size`, but the row records it anyway — don't read
-a delta between two `by-line` rows as a size effect.
 """
 
 import argparse
@@ -31,18 +30,17 @@ from embedding import EMBEDDING_MODEL
 from evals.recall_fixtures import RECALL_FIXTURES
 from evals.score_retrieval import TOP_K
 from evals.score_retrieval import main as score_recall
-from ingest.chunking import TARGET_SIZE, Chunker, by_characters, by_line
+from ingest.chunking import TARGET_SIZE, by_characters, by_line, by_window
 from ingest.pipeline import ingest_corpus
 
 RESULTS_FILE = Path(__file__).parent.parent / "results" / "retrieval_runs.jsonl"
 
 # Name -> a factory binding that strategy's knobs, so `chunk_document` can stay
 # a plain `(str) -> list[str]` contract.
-CHUNKERS: dict[str, Callable[[int], Chunker]] = {
-    "by-line": lambda target_size: by_line,
-    "character-splitting": lambda target_size: partial(
-        by_characters, target_size=target_size
-    ),
+CHUNKERS: dict[str, Callable[..., list[str]]] = {
+    "by-line": by_line,
+    "character-splitting": by_characters,
+    "fixed": by_window,
 }
 
 CORPUS_STATS_SQL = """
@@ -64,8 +62,8 @@ CONTAINMENT_SQL = """
 
 def measure_recall(
     *,
-    strategy: str = "character-splitting",
-    target_size: int = TARGET_SIZE,
+    strategy: str,
+    knobs: dict[str, int],
     captions: bool = True,
     ks: Sequence[int] = (TOP_K,),
 ) -> dict[str, Any]:
@@ -75,7 +73,7 @@ def measure_recall(
     recall@3 alone. The gap between them is the only view onto a gold chunk
     ranking 8th rather than 30th.
     """
-    chunker = CHUNKERS[strategy](target_size)
+    chunker = partial(CHUNKERS[strategy], **knobs)
 
     with connection() as conn:
         ingest_corpus(conn, captions=captions, chunker=chunker)
@@ -89,7 +87,7 @@ def measure_recall(
         "git": _git_provenance(),
         "config": {
             "strategy": strategy,
-            "target_size": target_size,
+            **knobs,
             "captions": captions,
             "embedding_model": EMBEDDING_MODEL,
         },
@@ -151,7 +149,7 @@ def _git_provenance() -> dict[str, Any]:
     reproduce it."""
     return {
         "sha": _git("rev-parse", "--short", "HEAD"),
-        "dirty": bool(_git("status", "--porcelain")),
+        "dirty": bool(_git("status", "--porcelain", "--", ".", ":(exclude)results/")),
     }
 
 
@@ -169,22 +167,18 @@ def _append(row: dict[str, Any]) -> None:
 
 
 def main() -> None:
-    args = _parse_args()
-    row = measure_recall(
-        strategy=args.strategy,
-        target_size=args.target_size,
-        captions=not args.no_captions,
-        ks=args.k,
-    )
+    args = vars(_parse_args())
+    strategy = args.pop("strategy")
+    captions = not args.pop("no_captions")
+    ks = args.pop("k")
+    row = measure_recall(strategy=strategy, knobs=args, captions=captions, ks=ks)
     _display(row)
 
 
 def _display(row: dict[str, Any]) -> None:
     config, corpus = row["config"], row["corpus"]
-    print(
-        f"\n{config['strategy']} | target {config['target_size']} "
-        f"| captions {config['captions']}"
-    )
+    print("\n" + " | ".join(f"{key} {value}" for key, value in config.items()))
+
     print(
         f"corpus: {corpus['chunks']} chunks | median {corpus['median_chars']} "
         f"| max {corpus['max_chars']} | under-120 {corpus['under_120']}"
@@ -199,19 +193,31 @@ def _display(row: dict[str, Any]) -> None:
 
 
 def _parse_args() -> argparse.Namespace:
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--no-captions", action="store_true")
+    common.add_argument(
+        "--k", type=int, nargs="+", default=[TOP_K], help="one or more k to score at"
+    )
+
     parser = argparse.ArgumentParser(
         prog="python -m evals.measure",
         description="Ingest the corpus under one chunking config and score recall.",
     )
-    parser.add_argument(
-        "--strategy", choices=sorted(CHUNKERS), default="character-splitting"
-    )
-    parser.add_argument("--target-size", type=int, default=TARGET_SIZE)
-    parser.add_argument("--no-captions", action="store_true")
-    parser.add_argument(
-        "--k", type=int, nargs="+", default=[TOP_K], help="one or more k to score at"
-    )
-    return parser.parse_args()
+    strategies = parser.add_subparsers(dest="strategy", required=True)
+
+    strategies.add_parser("by-line", parents=[common])
+
+    characters = strategies.add_parser("character-splitting", parents=[common])
+    characters.add_argument("--target-size", type=int, default=TARGET_SIZE)
+
+    fixed = strategies.add_parser("fixed", parents=[common])
+    fixed.add_argument("--target-size", type=int, default=TARGET_SIZE)
+    fixed.add_argument("--overlap", type=int, help="default: 10%% of --target-size")
+
+    args = parser.parse_args()
+    if args.strategy == "fixed" and args.overlap is None:
+        args.overlap = args.target_size // 10
+    return args
 
 
 if __name__ == "__main__":
