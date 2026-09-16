@@ -51,7 +51,7 @@ uv run python -m generation "Is Visa the capital-light kind of business Buffett 
 uv run python -m evals retrieval evidence citations
 
 # One controlled experiment: re-ingest under a chunking config, score it at
-# several k, append a row to results/retrieval_runs.jsonl
+# several k, insert the run and its per-span ranks into Postgres
 uv run python -m evals.measure character-splitting --target-size 800 --k 3 10
 ```
 
@@ -246,7 +246,6 @@ corpus/  ──►  ingest/  ──►  ┌────────────�
 | `grounding/`             | evidence linking, claim decomposition, citation checking               |
 | `prompts/`               | prompt library (YAML) + typed loader                                   |
 | `evals/`                 | fixtures, ground truth, the scoreboards over them, and `measure.py`    |
-| `results/`               | append-only JSONL — one row per measured configuration                 |
 | `tests/`                 | unit tests for the deterministic layer — no model calls, no database   |
 | `llm.py`, `embedding.py` | the two vendor adapters, owned by no layer                             |
 | `web/`                   | Next.js app — scaffolded, not built                                    |
@@ -279,7 +278,7 @@ Dependencies point inward. `domain/` imports nothing and everything imports it.
   handling, a recall delta couldn't be attributed to either.
 - **A measured configuration is the input to the run, not a note written after
   it.** `evals/measure.py` takes a config, re-ingests under it, scores, and
-  appends a row — so the recorded config is by construction the one that built
+  records the run — so the recorded config is by construction the one that built
   the corpus. Hand-pairing a score with a config had already failed silently
   once here.
 
