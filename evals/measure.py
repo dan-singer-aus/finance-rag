@@ -4,7 +4,8 @@
     uv run python -m evals.measure character-splitting --target-size 800 --k 3 10
     uv run python -m evals.measure by-line --no-captions
 
-Rows go to `results/retrieval_runs.jsonl`, append-only.
+Rows go to the `runs` and `run_spans` tables. Observations only — recall@k and
+MRR are derived from `run_spans` by query, not stored.
 
 Re-ingests every time (~$0.008, a minute or two) so the recorded config is the
 one that built the corpus rather than a description of it.
@@ -15,28 +16,20 @@ replaces every chunk in it.
 """
 
 import argparse
-import json
-import subprocess
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
 from functools import partial
-from pathlib import Path
 from typing import Any
 
 from psycopg import Connection
 
 from db.connection import connection
 from embedding import EMBEDDING_MODEL
-from evals.recall_fixtures import RECALL_FIXTURES
-from evals.score_retrieval import TOP_K
+from evals.score_retrieval import TOP_K, SpanRank, mrr, recall_at
 from evals.score_retrieval import main as score_recall
+from evals.store import insert_run
 from ingest.chunking import TARGET_SIZE, by_characters, by_line, by_window
 from ingest.pipeline import ingest_corpus
 
-RESULTS_FILE = Path(__file__).parent.parent / "results" / "retrieval_runs.jsonl"
-
-# Name -> a factory binding that strategy's knobs, so `chunk_document` can stay
-# a plain `(str) -> list[str]` contract.
 CHUNKERS: dict[str, Callable[..., list[str]]] = {
     "by-line": by_line,
     "character-splitting": by_characters,
@@ -53,12 +46,6 @@ CORPUS_STATS_SQL = """
     FROM chunks
 """
 
-# `strpos`, not `LIKE`: excerpts contain `%` and `_`, which LIKE reads as
-# wildcards and would over-match.
-CONTAINMENT_SQL = """
-    SELECT count(*)::int FROM chunks WHERE strpos(chunk_text, %(excerpt)s) > 0
-"""
-
 
 def measure_recall(
     *,
@@ -67,32 +54,31 @@ def measure_recall(
     captions: bool = True,
     ks: Sequence[int] = (TOP_K,),
 ) -> dict[str, Any]:
-    """Re-ingest under this config, score recall at each k, append one row.
-
-    Several `ks` score one ingest, so recall@3 and recall@10 cost the same as
-    recall@3 alone. The gap between them is the only view onto a gold chunk
-    ranking 8th rather than 30th.
-    """
     chunker = partial(CHUNKERS[strategy], **knobs)
 
     with connection() as conn:
         ingest_corpus(conn, captions=captions, chunker=chunker)
         corpus = _corpus_stats(conn)
-        containment = _containment(conn)
 
-    recall = [score_recall(k) for k in ks]
+    span_ranks = score_recall()
+    merged = [span_rank.merged_rank for span_rank in span_ranks]
+    recall = [recall_at(merged, k) for k in ks]
+
+    config: dict[str, Any] = {
+        "strategy": strategy,
+        **knobs,
+        "captions": captions,
+        "embedding_model": EMBEDDING_MODEL,
+    }
+    with connection() as conn:
+        run_id = insert_run(conn, config=config, corpus=corpus, span_ranks=span_ranks)
+        conn.commit()
 
     row: dict[str, Any] = {
-        "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
-        "git": _git_provenance(),
-        "config": {
-            "strategy": strategy,
-            **knobs,
-            "captions": captions,
-            "embedding_model": EMBEDDING_MODEL,
-        },
+        "run_id": run_id,
+        "config": config,
         "corpus": corpus,
-        "containment": containment,
+        "containment": _containment(span_ranks),
         "recall": [
             {
                 "k": result.k,
@@ -102,37 +88,40 @@ def measure_recall(
             }
             for result in recall
         ],
+        "mrr": round(mrr(merged), 3),
+        "ranks": [
+            {
+                "label": span_rank.label,
+                "corpus": span_rank.span.corpus,
+                "merged_rank": span_rank.merged_rank,
+                "corpus_rank": span_rank.corpus_rank,
+            }
+            for span_rank in span_ranks
+        ],
     }
-    _append(row)
     return row
 
 
-def _containment(conn: Connection) -> dict[str, Any]:
+def _containment(span_ranks: list[SpanRank]) -> dict[str, Any]:
     """How many gold spans survive this chunking intact — the run's ceiling.
 
     A span straddling a chunk boundary is inside no chunk, so retrieval can
     never find it. Moves with the chunker (3 of 12 were lost at target_size
     400), so recall without it can't be read.
     """
-    lost = []
-    with conn.cursor() as cursor:
-        for fixture in RECALL_FIXTURES:
-            for span in fixture.spans:
-                cursor.execute(CONTAINMENT_SQL, {"excerpt": span.excerpt})
-                (found,) = cursor.fetchone()  # type: ignore[misc]
-                if not found:
-                    lost.append(f"{fixture.label}/{span.corpus}")
-
-    spans = sum(len(fixture.spans) for fixture in RECALL_FIXTURES)
-    return {"spans": spans, "containable": spans - len(lost), "lost": lost}
+    lost = [
+        f"{span_rank.label}/{span_rank.span.corpus}"
+        for span_rank in span_ranks
+        if not span_rank.containable
+    ]
+    return {
+        "spans": len(span_ranks),
+        "containable": len(span_ranks) - len(lost),
+        "lost": lost,
+    }
 
 
 def _corpus_stats(conn: Connection) -> dict[str, int]:
-    """Chunk shape read back from the table, not from `chunk_document`.
-
-    What retrieval searches is what was persisted; a gap between the two should
-    show up here.
-    """
     with conn.cursor() as cursor:
         cursor.execute(CORPUS_STATS_SQL)
         chunks, median_chars, max_chars, under_120 = cursor.fetchone()  # type: ignore[misc]
@@ -142,28 +131,6 @@ def _corpus_stats(conn: Connection) -> dict[str, int]:
         "max_chars": max_chars,
         "under_120": under_120,
     }
-
-
-def _git_provenance() -> dict[str, Any]:
-    """Which commit produced this number. `dirty` means the sha alone won't
-    reproduce it."""
-    return {
-        "sha": _git("rev-parse", "--short", "HEAD"),
-        "dirty": bool(_git("status", "--porcelain", "--", ".", ":(exclude)results/")),
-    }
-
-
-def _git(*args: str) -> str:
-    completed = subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=True
-    )
-    return completed.stdout.strip()
-
-
-def _append(row: dict[str, Any]) -> None:
-    RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with RESULTS_FILE.open("a") as results:
-        results.write(json.dumps(row) + "\n")
 
 
 def main() -> None:
@@ -189,7 +156,8 @@ def _display(row: dict[str, Any]) -> None:
     print(f"containable: {ceiling}{lost}")
     for entry in row["recall"]:
         print(f"recall@{entry['k']}: {entry['hits']}/{entry['spans']}")
-    print(f"\nappended to {RESULTS_FILE.relative_to(Path.cwd())}")
+    print(f"MRR: {row['mrr']:.3f}")
+    print(f"\nrun {row['run_id']}")
 
 
 def _parse_args() -> argparse.Namespace:
