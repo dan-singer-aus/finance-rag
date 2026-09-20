@@ -60,7 +60,7 @@ def test_valid_and_invalid_markers_on_one_claim_are_split() -> None:
 
 
 def test_an_uncited_claim_resolves_to_nothing_without_complaint() -> None:
-    """Uncited is a legitimate state, distinct from citing a source that does not exist."""
+    """Uncited is legitimate, and distinct from citing a source that isn't there."""
     located = locate_citations([Claim(text="a claim", citations=[])], [chunk()])
 
     assert located[0].cited_chunks == []
@@ -81,7 +81,7 @@ def test_markers_keep_the_order_the_answer_wrote_them_in() -> None:
 
 
 def test_every_claim_gets_a_result_in_order() -> None:
-    """The scoreboard pairs claims to expectations by position, so nothing may be dropped."""
+    """The scoreboard pairs by position, so nothing may be dropped."""
     context = [chunk(chunk_text="first"), chunk(chunk_text="second")]
     claims = [
         Claim(text="cites one", citations=[1]),

@@ -86,7 +86,8 @@ def _display_run_counts(
     print(f"claims per run: {counts}  (expected {len(EXPECTED_VERDICTS)})")
     if len(usable) != len(runs):
         print(
-            f"⚠️  {len(runs) - len(usable)} run(s) excluded — wrong claim count, so positions don't align"
+            f"⚠️  {len(runs) - len(usable)} run(s) excluded — wrong claim count, "
+            f"so positions don't align"
         )
     print()
 
@@ -107,10 +108,12 @@ def _display_result(
     """
     claim = textwrap.shorten(verdict.located.claim.text, width=58, placeholder="…")
     overall = _mark(entailment_agreed == total and citations_agreed == total)
+    entailment_mark = _mark(entailment_agreed == total)
+    citations_mark = _mark(citations_agreed == total)
     print(
         f"{overall}  {claim:<58}  "
-        f"{_mark(entailment_agreed == total)} {expected.entailment:<12} {entailment_agreed}/{total}  "
-        f"{_mark(citations_agreed == total)} cites {_cites(expected.cites):>5} {citations_agreed}/{total}"
+        f"{entailment_mark} {expected.entailment:<12} {entailment_agreed}/{total}  "
+        f"{citations_mark} cites {_cites(expected.cites):>5} {citations_agreed}/{total}"
     )
 
 
@@ -125,10 +128,9 @@ def _display_disagreement(
     checker is wrong" and "the fixture is wrong" — without the recorded
     reasoning, the tempting fix is to edit the expectation until it matches.
     """
+    citation_tally = {_cites(list(cites)): n for cites, n in citations.items()}
     print(f"      entailment: {_tally(entailments)}")
-    print(
-        f"      citations:  {_tally({_cites(list(k)): n for k, n in citations.items()})}"
-    )
+    print(f"      citations:  {_tally(citation_tally)}")
     print(
         textwrap.fill(
             expected.why,
