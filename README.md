@@ -30,8 +30,12 @@ scored, against a fixture of six hand-written faults, over repeated runs.
 Both halves of the evaluation program now exist. The retrieval-stage half scores
 **recall@k** against hand-written span-level ground truth, which means retrieval
 quality work has a baseline to move rather than a claim to assert. That work is
-underway: table segmentation and a configurable chunker are in, hybrid search and
-reranking are not. See [Roadmap](#roadmap).
+underway: table segmentation, a configurable chunker and cross-encoder reranking
+are in; hybrid search is not. See [Roadmap](#roadmap).
+
+Reranking is the largest measured gain so far — **recall@3 from 4/12 to 7/12, and
+MRR from 0.211 to 0.502**, on an unchanged corpus, after 49 chunking
+configurations had all failed to beat 4/12.
 
 **Working today:**
 
@@ -39,7 +43,7 @@ reranking are not. See [Roadmap](#roadmap).
 # Ingest both corpora: parse → chunk → embed → store
 uv run python -m ingest
 
-# Semantic search over the chunk store
+# Semantic search over the chunk store; --rerank adds a cross-encoder pass
 uv run python -m retrieval "What drove Visa's net revenue growth in fiscal 2025?"
 
 # Full retrieval + grounded generation, with citations
@@ -225,6 +229,32 @@ measurement of the instrument. Every run now records its own ceiling alongside
 its score, because a recall figure without one can't distinguish _ranked badly_
 from _no longer findable_.
 
+### Chunking was the wrong lever, and it took 49 runs to show it
+
+Three chunking strategies were built and measured across 49 configurations —
+sizes from 390 to 2,010 characters, overlaps from zero to sentence-sized. **None
+beat 4/12 at recall@3**, which is what the original newline splitter scores.
+
+That reads like a null result, and at k=3 it is. One column over it isn't: MRR
+separates the same configurations from 0.211 to 0.290, because a span moving from
+rank 9 to rank 4 crosses no boundary at k=3 and is therefore invisible to it. The
+chunkers did differ. The metric couldn't see it.
+
+The useful conclusion was the negative one — if re-cutting the text doesn't move
+retrieval, the text wasn't the constraint. Adding a cross-encoder to the same
+corpus took recall@3 to **7/12** and MRR to **0.502**. The diagnosis was
+available in the per-span ranks all along: gold passages were being retrieved
+into the top ten of their own corpus and then ranked fourth to tenth. A
+bi-encoder embeds the query and the document separately and can only compare
+them as points; a cross-encoder reads both together, which is what reordering
+that band requires.
+
+It also sharpened what a failure means. Misses now split into two kinds: a span
+the retriever never returned at any depth — which no reranker can reach — and a
+span that was returned, scored by a model reading it alongside the query, and
+judged irrelevant anyway. The second kind is evidence about the _fixture_, not
+the retriever, and that distinction didn't exist before.
+
 ---
 
 ## Architecture
@@ -383,22 +413,26 @@ claimed improvement without a baseline is a vibe.
 **Retrieval quality.** Each of these is a known technique with a known failure
 direction, to be adopted only if it moves the number:
 
-- **Better chunking — in progress.** Table segmentation is done (it collapsed
-  ~600 orphaned table rows into 112 labelled blocks, and moved recall@3 by
-  exactly zero). Recursive character splitting with a size target is done and
-  measured. Fixed-window is next, as the structure-blind comparator: if a blind
-  window matches a structure-aware splitter, that is itself the finding. Then
-  semantic chunking, last among the strategies because it is the first one with
-  a threshold to tune and tuning against an uncalibrated metric is how an
-  instrument gets overfitted.
+- **Better chunking — done, and it was the wrong lever.** Table segmentation
+  collapsed ~600 orphaned table rows into 112 labelled blocks and moved recall@3
+  by exactly zero. Recursive character splitting and a structure-blind fixed
+  window were both built and measured across 49 configurations; none beat the
+  original newline splitter at k=3, though MRR separates them where recall@3
+  cannot. Semantic chunking is not planned: the grid priced this whole family of
+  change at roughly 0.1 MRR, which doesn't justify a chunker that has to call an
+  embedding model and carry a tuned threshold.
 - **Hybrid search (semantic + BM25).** Pure vector search misses exact terms —
   tickers, product names, figures. Worth noting the failure direction: on the
   one query where the _correct_ answer ranked 4th, keyword search would have made
   it worse, because Buffett states the concept in metaphor and has none of the
   query's vocabulary.
-- **Reranking** with a cross-encoder that reads query and chunk together — the
-  right fix for the metaphor case above, and for the gold passages currently
-  landing at rank 4–10 rather than in the top 3.
+- **Reranking — built.** A cross-encoder (`ms-marco-MiniLM-L6-v2`, run locally)
+  scores query and chunk together and reorders the candidate set, which is the
+  right fix for the metaphor case above and for gold passages landing at rank
+  4–10 rather than in the top 3. recall@3 4/12 → 7/12, MRR 0.211 → 0.502. It
+  also gives the cross-corpus merge a single comparable score for the first
+  time: the previous rank-based fusion could only interleave the two corpora,
+  which cost every letters span a factor of two on its merged rank.
 - **Metadata filters and corpus routing.** Filtering by company, fiscal year,
   section and corpus. A filings-only question currently still spends part of its
   budget on letters chunks.

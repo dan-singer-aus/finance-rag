@@ -7,6 +7,7 @@ from db.connection import connection
 from domain.chunks import RetrievedChunk
 from evals.recall_fixtures import RECALL_FIXTURES, GoldSpan, RecallFixture
 from retrieval.pipeline import retrieve
+from retrieval.reranking import PairScorer, rerank
 
 CONTAINMENT_SQL = """
     SELECT count(*)::int FROM chunks WHERE strpos(chunk_text, %(excerpt)s) > 0
@@ -38,12 +39,15 @@ class RecallResult:
         return self.hits / self.spans
 
 
-def main(k: int = TOP_K) -> list[SpanRank]:
+def main(k: int = TOP_K, scorer: PairScorer | None = None) -> list[SpanRank]:
     """Score recall@k over every fixture, print the report, return the numbers."""
     span_ranks: list[SpanRank] = []
     with connection() as conn:
         for fixture in RECALL_FIXTURES:
             results = retrieve(conn, fixture.query, k=RESULTS_WINDOW)
+            if scorer is not None:
+                reranked = rerank(fixture.query, results, scorer)
+                results = [item.chunk for item in reranked]
             fixture_ranks = [
                 _rank_span(conn, fixture, span, results) for span in fixture.spans
             ]
