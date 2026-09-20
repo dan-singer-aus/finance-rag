@@ -24,6 +24,9 @@ dev = [
     "ruff>=0.15.16",
     "types-pyyaml>=6.0.12.20260815",
 ]
+rerank = [
+    "sentence-transformers>=6.1.0",
+]
 
 [tool.uv]
 # Not a distributable package — just an env + deps. Run modules with `uv run`.
