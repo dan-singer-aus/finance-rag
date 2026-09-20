@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from psycopg import Connection
 
 from db.connection import connection
-from domain.chunks import RetrievedChunk
+from domain.chunks import RankedChunk, RetrievedChunk
 from evals.recall_fixtures import RECALL_FIXTURES, GoldSpan, RecallFixture
 from retrieval.pipeline import retrieve
 from retrieval.reranking import PairScorer, rerank
@@ -44,14 +44,16 @@ def main(k: int = TOP_K, scorer: PairScorer | None = None) -> list[SpanRank]:
     span_ranks: list[SpanRank] = []
     with connection() as conn:
         for fixture in RECALL_FIXTURES:
-            results = retrieve(conn, fixture.query, k=RESULTS_WINDOW)
-            if scorer is not None:
-                reranked = rerank(fixture.query, results, scorer)
-                results = [item.chunk for item in reranked]
+            chunks = retrieve(conn, fixture.query, k=RESULTS_WINDOW)
+            ranked = (
+                rerank(fixture.query, chunks, scorer)
+                if scorer is not None
+                else _by_cosine(chunks)
+            )
             fixture_ranks = [
-                _rank_span(conn, fixture, span, results) for span in fixture.spans
+                _rank_span(conn, fixture, span, ranked) for span in fixture.spans
             ]
-            _display_result(fixture, fixture_ranks, results)
+            _display_result(fixture, fixture_ranks, ranked)
             span_ranks += fixture_ranks
 
     merged = [span_rank.merged_rank for span_rank in span_ranks]
@@ -61,13 +63,18 @@ def main(k: int = TOP_K, scorer: PairScorer | None = None) -> list[SpanRank]:
     return span_ranks
 
 
-def _rank_of(span: GoldSpan, chunks: list[RetrievedChunk]) -> int | None:
+def _by_cosine(chunks: list[RetrievedChunk]) -> list[RankedChunk]:
+    """Pair each chunk with its cosine score, which is what ordered this list."""
+    return [RankedChunk(chunk=chunk, score=chunk.score) for chunk in chunks]
+
+
+def _rank_of(span: GoldSpan, ranked: list[RankedChunk]) -> int | None:
     """1-based position of the first chunk containing the span's excerpt."""
     return next(
         (
             rank
-            for rank, chunk in enumerate(chunks, start=1)
-            if span.excerpt in chunk.chunk_text
+            for rank, item in enumerate(ranked, start=1)
+            if span.excerpt in item.chunk.chunk_text
         ),
         None,
     )
@@ -77,14 +84,14 @@ def _rank_span(
     conn: Connection,
     fixture: RecallFixture,
     span: GoldSpan,
-    results: list[RetrievedChunk],
+    ranked: list[RankedChunk],
 ) -> SpanRank:
-    same_corpus = [chunk for chunk in results if chunk.corpus == span.corpus]
+    same_corpus = [item for item in ranked if item.chunk.corpus == span.corpus]
     return SpanRank(
         label=fixture.label,
         span=span,
         containable=_is_containable(conn, span),
-        merged_rank=_rank_of(span, results),
+        merged_rank=_rank_of(span, ranked),
         corpus_rank=_rank_of(span, same_corpus),
     )
 
@@ -110,7 +117,7 @@ def mrr(ranks: list[int | None]) -> float:
 def _display_result(
     fixture: RecallFixture,
     fixture_ranks: list[SpanRank],
-    results: list[RetrievedChunk],
+    ranked: list[RankedChunk],
 ) -> None:
     query = textwrap.shorten(fixture.query, width=72, placeholder="…")
     print(f"{fixture.label:<4} {query}")
@@ -122,10 +129,10 @@ def _display_result(
             f"  corpus {_rank(span_rank.corpus_rank):>4}"
         )
         if span_rank.merged_rank is None:
-            _display_miss(span_rank, results)
+            _display_miss(span_rank, ranked)
 
 
-def _display_miss(span_rank: SpanRank, results: list[RetrievedChunk]) -> None:
+def _display_miss(span_rank: SpanRank, ranked: list[RankedChunk]) -> None:
     if not span_rank.containable:
         print("        not containable — no chunk holds this excerpt whole")
         return
@@ -139,8 +146,8 @@ def _display_miss(span_rank: SpanRank, results: list[RetrievedChunk]) -> None:
         )
     )
     print(f"        top {DISPLAY_CHUNKS} returned:")
-    for chunk in results[:DISPLAY_CHUNKS]:
-        print(f"          {round(chunk.score, 3)}  {chunk.provenance}")
+    for item in ranked[:DISPLAY_CHUNKS]:
+        print(f"          {round(item.score, 3)}  {item.chunk.provenance}")
     print()
 
 
