@@ -24,6 +24,9 @@ dev = [
     "ruff>=0.15.16",
     "types-pyyaml>=6.0.12.20260815",
 ]
+rerank = [
+    "sentence-transformers>=6.1.0",
+]
 
 [tool.uv]
 # Not a distributable package — just an env + deps. Run modules with `uv run`.
@@ -57,4 +60,12 @@ warn_unused_configs = true
 # by nature, which is exactly why parse_document exists as a typed boundary.
 [[tool.mypy.overrides]]
 module = ["frontmatter.*"]
+ignore_missing_imports = true
+
+# sentence-transformers sits in a non-default dependency group, so CI never
+# installs it — which is the point. mypy must not fail on an import it has been
+# deliberately denied. The cost is that the vendor surface types as Any, which is
+# why cross_encoder.py casts its numpy scalars to int and float at the boundary.
+[[tool.mypy.overrides]]
+module = ["sentence_transformers.*"]
 ignore_missing_imports = true

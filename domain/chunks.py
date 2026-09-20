@@ -48,3 +48,9 @@ class RetrievedChunk:
         if self.corpus == "letters":
             return self.title
         return f"{self.company} FY{self.fiscal_year} {self.doc_type} {self.section}"
+
+
+@dataclass(frozen=True)
+class RerankedChunk:
+    chunk: RetrievedChunk
+    score: float
