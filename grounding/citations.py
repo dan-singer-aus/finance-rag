@@ -17,8 +17,7 @@ class _Judgement(BaseModel):
 def locate_citations(
     claims: list[Claim], chunks: list[RetrievedChunk]
 ) -> list[LocatedClaim]:
-    """Find the chunks that are cited by each claim"""
-
+    """Find the chunks that are cited by each claim."""
     results: list[LocatedClaim] = []
     for claim in claims:
         cited_chunks = []

@@ -49,9 +49,10 @@ class Prompt:
 
         leftover = sorted(set(_PLACEHOLDER.findall(rendered)))
         if leftover:
+            given = ", ".join(sorted(fields)) or "nothing"
             raise ValueError(
                 f"prompt {self.name!r} still has unfilled placeholders: "
-                f"{', '.join(leftover)} (given: {', '.join(sorted(fields)) or 'nothing'})"
+                f"{', '.join(leftover)} (given: {given})"
             )
         return rendered
 

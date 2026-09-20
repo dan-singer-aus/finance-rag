@@ -31,5 +31,7 @@ def parse_call[T: BaseModel](system: str, user: str, model: str, schema: type[T]
         text_format=schema,
     )
     if response.output_parsed is None:
-        raise ValueError(f"{model} returned no parsed output ...")
+        raise ValueError(
+            f"{model} returned no parsed output for schema {schema.__name__}"
+        )
     return response.output_parsed

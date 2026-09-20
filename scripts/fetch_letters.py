@@ -41,12 +41,18 @@ USER_AGENT = "Mozilla/5.0 (compatible; personal-research-corpus/1.0)"
 HTML_PATTERNS = ["{base}/{year}.html", "{base}/{year}htm.html", "{base}/{year}ltr.html"]
 PDF_PATTERNS = ["{base}/{year}ltr.pdf"]
 
+HTTP_OK = 200
+
+# Some years' bare {year}.html is a frameset stub rather than the letter itself;
+# every real letter is far larger than this, every stub far smaller.
+MIN_LETTER_BYTES = 10_000
+
 
 def _get(url: str) -> bytes | None:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            if response.status != 200:
+            if response.status != HTTP_OK:
                 return None
             # See fetch_filings._get — .read() is Any off a union return type.
             body: bytes = response.read()
@@ -64,6 +70,13 @@ SEPARATOR_RE = re.compile(r"^[\s*_\-]*(?:\*[\s*]*){3,}$")
 def _is_separator(block: str) -> bool:
     """Buffett's `* * * * *` section dividers — a real boundary, not content."""
     return bool(SEPARATOR_RE.fullmatch(block.strip().replace("**", "*")))
+
+
+# Thresholds for the table/prose heuristic below, all tuned against this corpus.
+DIGITS_PER_TABLE_LINE = 8
+PROSE_MIN_SENTENCE_BREAKS = 2
+PROSE_MIN_WORDS = 40
+PROSE_MAX_DIGIT_LINE_RATIO = 0.3
 
 
 def _looks_tabular(block: str) -> bool:
@@ -86,14 +99,16 @@ def _looks_tabular(block: str) -> bool:
     if not lines:
         return False
 
-    digit_heavy = sum(1 for line in lines if len(re.findall(r"\d", line)) >= 8)
+    digit_heavy = sum(
+        1 for line in lines if len(re.findall(r"\d", line)) >= DIGITS_PER_TABLE_LINE
+    )
 
     # Prose veto, checked first: sentence boundaries + low digit density.
     sentence_breaks = len(re.findall(r"[.!?][\"')”]?\s+[A-Z]", block))
     if (
-        sentence_breaks >= 2
-        and len(block.split()) > 40
-        and digit_heavy < len(lines) * 0.3
+        sentence_breaks >= PROSE_MIN_SENTENCE_BREAKS
+        and len(block.split()) > PROSE_MIN_WORDS
+        and digit_heavy < len(lines) * PROSE_MAX_DIGIT_LINE_RATIO
     ):
         return False
 
@@ -112,7 +127,7 @@ def _looks_tabular(block: str) -> bool:
 
 
 def _unwrap(block: str) -> str:
-    """Join hard-wrapped lines of a prose block back into one paragraph.
+    r"""Join hard-wrapped lines of a prose block back into one paragraph.
 
     Rejoins compounds the original split at a line break ("Per-\\nshare"). Naive
     joining gives "Per- share", which reads fine but is not what the document
@@ -192,9 +207,11 @@ def html_to_markdown(raw: bytes) -> str:
 
 
 def pdf_to_markdown(raw: bytes) -> str:
-    from io import BytesIO
+    # Imported here, not at module top: pypdf is a dev dependency and only the
+    # PDF years need it, so the HTML path stays runnable without it installed.
+    from io import BytesIO  # noqa: PLC0415
 
-    from pypdf import PdfReader
+    from pypdf import PdfReader  # noqa: PLC0415
 
     reader = PdfReader(BytesIO(raw))
     pages = [page.extract_text() or "" for page in reader.pages]
@@ -224,13 +241,13 @@ def fetch_year(year: int) -> tuple[str, str] | None:
         raw = _get(url)
         # The bare {year}.html for some years is a tiny frameset stub, not the
         # letter. Size is a crude but reliable way to tell them apart.
-        if raw and len(raw) > 10_000:
+        if raw and len(raw) > MIN_LETTER_BYTES:
             return html_to_markdown(raw), url
 
     for pattern in PDF_PATTERNS:
         url = pattern.format(base=BASE, year=year)
         raw = _get(url)
-        if raw and len(raw) > 10_000:
+        if raw and len(raw) > MIN_LETTER_BYTES:
             return pdf_to_markdown(raw), url
 
     return None

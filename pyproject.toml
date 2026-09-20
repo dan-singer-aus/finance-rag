@@ -35,6 +35,91 @@ package = false
 [tool.pytest.ini_options]
 pythonpath = ["."]
 
+# Ruff was running on its default rule set (E4, E7, E9, F) — four families out of
+# fifty, chosen by nobody. This selects the ones that encode the principles this
+# project already works by, so they are checked rather than remembered.
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle — whitespace, line length, statement layout
+    "F",        # pyflakes — unused imports/names, undefined names
+    "I",        # isort — import grouping and order
+    "N",        # pep8-naming — the CAPS/snake/Pascal conventions
+    "UP",       # pyupgrade — keeps the code in 3.12 idiom, not 3.8's
+    "B",        # bugbear — real bug shapes (mutable defaults, loop-variable capture)
+    "A",        # builtins — a local named `id`/`type`/`list` shadowing the builtin
+    "C4",       # comprehensions — `list(x for ...)`, `dict()` where a literal reads better
+    "SIM",      # simplify — collapsible ifs, redundant bool conversions
+    "RET",      # return — unreachable branches after return, inconsistent returns
+    "PTH",      # pathlib over os.path
+    "ARG",      # unused arguments — a parameter nothing reads is a lie in the signature
+    "TID",      # tidy-imports — bans relative imports (see flake8-tidy-imports below)
+    "C90",      # mccabe complexity — the SLAP/SRP pressure valve
+    "PL",       # pylint subset — argument counts, branch counts, MAGIC VALUES
+    "BLE",      # blind-except — the "no silent error swallowing" rule, enforced
+    "TRY",      # exception antipatterns
+    "ISC",      # implicit string concatenation — catches a missing comma in a list
+    "D",        # pydocstyle, google convention (configured below)
+    "RUF",      # ruff's own
+]
+
+ignore = [
+    # Missing-docstring rules. Deliberately OFF for now: turning them on today
+    # files ~105 findings, nearly all on small functions whose signature already
+    # says everything. The D2xx/D4xx rules below still keep the docstrings that
+    # DO exist consistent. Enable when that backlog is worth paying.
+    "D100", "D101", "D102", "D103", "D104",
+
+    # Requires exception messages be bound to a name before `raise`. Pure
+    # ceremony for a one-line message, and this codebase raises with context.
+    "EM101", "EM102",
+    "TRY003",  # long messages in raise — same reason; no exception hierarchy here
+
+    # Fires on the em-dashes and curly quotes in the explanatory comments and in
+    # the verbatim fixture excerpts. Both are intentional; the excerpts are
+    # matched against source text and must stay byte-for-byte.
+    "RUF001", "RUF002", "RUF003",
+
+    "ISC001",  # conflicts with the formatter's string handling
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Fixture modules hold gold-span excerpts and answer text VERBATIM — one line is
+# 1,778 characters. `span.excerpt in chunk.chunk_text` is a substring check, so
+# reflowing a string here does not just look different, it silently breaks the
+# ground truth and every recall number derived from it.
+"evals/recall_fixtures.py" = ["E501"]
+"evals/answer_fixtures.py" = ["E501"]
+
+# Tests are specifications, and two rules invert there:
+#   PLR2004 — `assert recall.hits == 3` is the assertion. Hoisting the 3 into a
+#             named constant hides the expected value behind an indirection and
+#             lets it be changed without the test reading differently.
+#   ARG     — a test double takes the arguments its protocol demands and ignores
+#             them on purpose; that is what makes it a double.
+# Kept ON in scripts/, where a bare `15` is still an unexplained number.
+"tests/*" = ["PLR2004", "ARG"]
+
+[tool.ruff.lint.pydocstyle]
+# The most widely used of the three conventions (google / numpy / pep257).
+# numpy's section-heavy style suits scientific APIs; pep257 checks almost
+# nothing. Selecting a convention also switches off the D rules that contradict
+# it, so this is what silences the D203/D211 and D212/D213 conflicts.
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+# Branch count per function. Not a style rule — it is the one mechanical proxy
+# for "single level of abstraction per function" there is. Nothing here is near
+# 10 today, so it acts as a ratchet rather than a backlog.
+max-complexity = 10
+
+[tool.ruff.lint.flake8-tidy-imports]
+# Absolute imports only, which is already the habit everywhere in this project.
+ban-relative-imports = "all"
+
 [tool.mypy]
 python_version = "3.12"
 # ⚠️ An explicit list: a new top-level package is SILENTLY unchecked until it is
