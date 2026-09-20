@@ -24,11 +24,12 @@ from psycopg import Connection
 
 from db.connection import connection
 from embedding import EMBEDDING_MODEL
-from evals.score_retrieval import TOP_K, SpanRank, mrr, recall_at
+from evals.score_retrieval import RESULTS_WINDOW, TOP_K, SpanRank, mrr, recall_at
 from evals.score_retrieval import main as score_recall
 from evals.store import insert_run
 from ingest.chunking import TARGET_SIZE, by_characters, by_line, by_window
 from ingest.pipeline import ingest_corpus
+from retrieval.reranking import Reranker
 
 CHUNKERS: dict[str, Callable[..., list[str]]] = {
     "by-line": by_line,
@@ -53,6 +54,7 @@ def measure_recall(
     knobs: dict[str, int],
     captions: bool = True,
     ks: Sequence[int] = (TOP_K,),
+    reranker: Reranker | None = None,
 ) -> dict[str, Any]:
     chunker = partial(CHUNKERS[strategy], **knobs)
 
@@ -60,7 +62,7 @@ def measure_recall(
         ingest_corpus(conn, captions=captions, chunker=chunker)
         corpus = _corpus_stats(conn)
 
-    span_ranks = score_recall()
+    span_ranks = score_recall(scorer=reranker.score_pairs if reranker else None)
     merged = [span_rank.merged_rank for span_rank in span_ranks]
     recall = [recall_at(merged, k) for k in ks]
 
@@ -69,6 +71,10 @@ def measure_recall(
         **knobs,
         "captions": captions,
         "embedding_model": EMBEDDING_MODEL,
+        # Both or neither — the 004 CHECK enforces it. Depth is the whole window
+        # today because rerank() scores every candidate retrieve() returned.
+        "reranker": reranker.model_id if reranker else None,
+        "candidate_depth": RESULTS_WINDOW if reranker else None,
     }
     with connection() as conn:
         run_id = insert_run(conn, config=config, corpus=corpus, span_ranks=span_ranks)
@@ -138,8 +144,23 @@ def main() -> None:
     strategy = args.pop("strategy")
     captions = not args.pop("no_captions")
     ks = args.pop("k")
-    row = measure_recall(strategy=strategy, knobs=args, captions=captions, ks=ks)
+    # Everything still in `args` becomes the chunker's knobs, so a flag that
+    # isn't popped is passed to partial() and raises there instead of here.
+    reranker = _load_reranker() if args.pop("rerank") else None
+    row = measure_recall(
+        strategy=strategy, knobs=args, captions=captions, ks=ks, reranker=reranker
+    )
     _display(row)
+
+
+def _load_reranker() -> Reranker:
+    """Build the cross-encoder reranker, importing torch only if asked for it."""
+    # sentence-transformers lives in the non-default `rerank` group, so a
+    # top-level import would cost every unreranked run a multi-second torch
+    # import and break CI, which is deliberately denied the package.
+    from retrieval.cross_encoder import reranker  # noqa: PLC0415
+
+    return reranker()
 
 
 def _display(row: dict[str, Any]) -> None:
@@ -165,6 +186,11 @@ def _parse_args() -> argparse.Namespace:
     common.add_argument("--no-captions", action="store_true")
     common.add_argument(
         "--k", type=int, nargs="+", default=[TOP_K], help="one or more k to score at"
+    )
+    common.add_argument(
+        "--rerank",
+        action="store_true",
+        help="reorder the candidates with the cross-encoder before scoring",
     )
 
     parser = argparse.ArgumentParser(
