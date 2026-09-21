@@ -51,6 +51,6 @@ class RetrievedChunk:
 
 
 @dataclass(frozen=True)
-class RerankedChunk:
+class RankedChunk:
     chunk: RetrievedChunk
     score: float

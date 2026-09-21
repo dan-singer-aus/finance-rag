@@ -79,7 +79,6 @@ def _format_best_chunk_in_corpus(chunks: list[RetrievedChunk], corpus: Corpus) -
     qualifying chunk to show — and "how close did the best one get" is the
     number that says whether the threshold is wrong or the retrieval is.
     """
-
     in_corpus = [chunk for chunk in chunks if chunk.corpus == corpus]
     if not in_corpus:
         return f"no chunks for {corpus} returned"

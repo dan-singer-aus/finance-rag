@@ -270,6 +270,12 @@ def _slice(text: str, start_pattern: str, end_pattern: str, prose: bool) -> str 
     return None
 
 
+# Page furniture is short AND repeated; either signal alone catches real content
+# (a genuine heading is short, a boilerplate sentence repeats).
+FURNITURE_MAX_WORDS = 15
+FURNITURE_MIN_REPEATS = 3
+
+
 def _strip_page_furniture(section: str) -> str:
     """Drop repeated running headers, page rules, and empty table rows.
 
@@ -279,8 +285,12 @@ def _strip_page_furniture(section: str) -> str:
     Repetition plus brevity is the signal; a real heading does not recur.
     """
     lines = section.split("\n")
-    counts = Counter(line.strip() for line in lines if len(line.split()) < 15)
-    furniture = {line for line, n in counts.items() if n >= 3 and line}
+    counts = Counter(
+        line.strip() for line in lines if len(line.split()) < FURNITURE_MAX_WORDS
+    )
+    furniture = {
+        line for line, n in counts.items() if n >= FURNITURE_MIN_REPEATS and line
+    }
     kept = [
         line
         for line in lines
