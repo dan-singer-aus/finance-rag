@@ -5,7 +5,10 @@ from psycopg import Connection
 from domain.documents import Document, FilingDocument, LetterDocument
 
 SOURCE_INSERTION_SQL = """
-    INSERT INTO sources (corpus, company, doc_type, title, section, fiscal_year, source_url, ticker, cik, period_end)
+    INSERT INTO sources (
+        corpus, company, doc_type, title, section,
+        fiscal_year, source_url, ticker, cik, period_end
+    )
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (corpus, ticker, fiscal_year, section) DO UPDATE SET
         doc_type = EXCLUDED.doc_type,

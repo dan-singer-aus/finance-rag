@@ -14,7 +14,7 @@ def test_an_unranked_span_never_counts_as_a_hit() -> None:
 
 
 def test_misses_stay_in_the_denominator() -> None:
-    """recall is hits over EVERY span, not over the ones that ranked."""
+    """Recall is hits over EVERY span, not over the ones that ranked."""
     result = recall_at([1, None, 5], k=3)
 
     assert (result.hits, result.spans) == (1, 3)

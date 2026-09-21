@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import frontmatter
@@ -10,6 +11,8 @@ from domain.documents import Document
 from embedding import embed
 from ingest.chunking import Chunker, by_characters, chunk_document
 from ingest.parsing import parse_document
+
+logger = logging.getLogger(__name__)
 
 CORPUS_FOLDER = Path(__file__).parent.parent / "corpus"
 
@@ -46,7 +49,7 @@ def ingest_document(
     source_id = insert_source(conn, document)
     delete_for_source(conn, source_id)
     insert_many(conn, source_id, embedded_chunks)
-    print(f"{document.title}: {len(embedded_chunks)} chunks")
+    logger.info("%s: %d chunks", document.title, len(embedded_chunks))
 
 
 def get_files(folder_name: str) -> list[Path]:

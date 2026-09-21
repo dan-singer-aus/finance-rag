@@ -64,13 +64,13 @@ def test_the_thresholds_are_per_corpus_not_global() -> None:
     scores are nearly flat because every filing chunk is about one of three
     companies, so a single global cut point reads the flatter column.
     """
-    assert LETTERS_PASS < SUPPORT_THRESHOLDS["filings"]
+    assert SUPPORT_THRESHOLDS["filings"] > LETTERS_PASS
     assert _classify([chunk(corpus="letters", score=LETTERS_PASS)]) == "weak"
     assert _classify([chunk(corpus="filings", score=LETTERS_PASS)]) == "unsupported"
 
 
 def test_input_order_does_not_change_the_verdict() -> None:
-    """`_classify` must not assume its input is sorted — it filters, it does not index."""
+    """`_classify` must not assume sorted input — it filters, it does not index."""
     qualifying = chunk(corpus="filings", score=FILINGS_PASS)
     failing = chunk(corpus="filings", score=FILINGS_FAIL)
 

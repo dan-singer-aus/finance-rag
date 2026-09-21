@@ -1,5 +1,4 @@
-"""A forged generated answer, the context it was written against, and the
-verdict each of its claims should receive.
+"""A forged answer, its frozen context, and each claim's expected verdict.
 
 ⚠️ **CONTEXT IS FROZEN. Do not make this retrieve live.** It is a verbatim
 capture of `retrieve(conn, QUESTION)` from 2026-08-31. The faults below are

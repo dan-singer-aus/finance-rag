@@ -11,16 +11,18 @@ from psycopg import Connection
 
 from evals.score_retrieval import SpanRank
 
-# Named parameters: nine columns is where a positional tuple starts drifting out
+# Named parameters: eleven columns is where a positional tuple starts drifting out
 # of step with the column list unseen.
 INSERT_RUN_SQL = """
     INSERT INTO runs (
         strategy, target_size, overlap, captions, embedding_model,
+        reranker, candidate_depth,
         chunks, median_chars, max_chars, under_120
     )
     VALUES (
         %(strategy)s, %(target_size)s, %(overlap)s, %(captions)s,
         %(embedding_model)s,
+        %(reranker)s, %(candidate_depth)s,
         %(chunks)s, %(median_chars)s, %(max_chars)s, %(under_120)s
     )
     RETURNING id
@@ -48,6 +50,8 @@ def insert_run(
         "overlap": config.get("overlap"),
         "captions": config["captions"],
         "embedding_model": config["embedding_model"],
+        "reranker": config.get("reranker"),
+        "candidate_depth": config.get("candidate_depth"),
         **corpus,
     }
 

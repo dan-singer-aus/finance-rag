@@ -6,7 +6,7 @@ from ingest.segmentation import Block, segment
 
 CHARACTER_LIMIT = 4000
 TARGET_SIZE = 2000
-SEPARATOR = ["\n\n", "\n", ". ", " "]
+SEPARATORS = ["\n\n", "\n", ". ", " "]
 
 type Chunker = Callable[[str], list[str]]
 
@@ -55,7 +55,7 @@ def _pack(pieces: list[str], target_size: int) -> list[str]:
 
 def by_characters(text: str, target_size: int = TARGET_SIZE) -> list[str]:
     """Split text into pieces of at most target_size characters."""
-    pieces = _split_recursive(text, SEPARATOR, target_size)
+    pieces = _split_recursive(text, SEPARATORS, target_size)
     packed_pieces = _pack(pieces, target_size)
     return [piece.strip() for piece in packed_pieces if piece.strip()]
 
