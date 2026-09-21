@@ -1,4 +1,5 @@
 import textwrap
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from psycopg import Connection
@@ -29,6 +30,13 @@ class SpanRank:
 
 
 @dataclass(frozen=True)
+class FixtureResult:
+    fixture: RecallFixture
+    span_ranks: list[SpanRank]
+    ranked: list[RankedChunk]
+
+
+@dataclass(frozen=True)
 class RecallResult:
     k: int
     hits: int
@@ -42,6 +50,19 @@ class RecallResult:
 def main(k: int = TOP_K, scorer: PairScorer | None = None) -> list[SpanRank]:
     """Score recall@k over every fixture, print the report, return the numbers."""
     span_ranks: list[SpanRank] = []
+    for result in score_fixtures(scorer):
+        _display_result(result)
+        span_ranks += result.span_ranks
+
+    merged = [span_rank.merged_rank for span_rank in span_ranks]
+    recall = recall_at(merged, k)
+    print(f"\nrecall@{k}: {recall.hits}/{recall.spans} ({recall.recall:.0%})")
+    print(f"MRR: {mrr(merged):.3f}")
+    return span_ranks
+
+
+def score_fixtures(scorer: PairScorer | None = None) -> Iterator[FixtureResult]:
+    """Retrieve, rank and score every fixture, one result at a time."""
     with connection() as conn:
         for fixture in RECALL_FIXTURES:
             chunks = retrieve(conn, fixture.query, k=RESULTS_WINDOW)
@@ -53,14 +74,9 @@ def main(k: int = TOP_K, scorer: PairScorer | None = None) -> list[SpanRank]:
             fixture_ranks = [
                 _rank_span(conn, fixture, span, ranked) for span in fixture.spans
             ]
-            _display_result(fixture, fixture_ranks, ranked)
-            span_ranks += fixture_ranks
-
-    merged = [span_rank.merged_rank for span_rank in span_ranks]
-    recall = recall_at(merged, k)
-    print(f"\nrecall@{k}: {recall.hits}/{recall.spans} ({recall.recall:.0%})")
-    print(f"MRR: {mrr(merged):.3f}")
-    return span_ranks
+            yield FixtureResult(
+                fixture=fixture, span_ranks=fixture_ranks, ranked=ranked
+            )
 
 
 def _by_cosine(chunks: list[RetrievedChunk]) -> list[RankedChunk]:
@@ -114,11 +130,10 @@ def mrr(ranks: list[int | None]) -> float:
     return sum(1 / rank for rank in ranks if rank is not None) / len(ranks)
 
 
-def _display_result(
-    fixture: RecallFixture,
-    fixture_ranks: list[SpanRank],
-    ranked: list[RankedChunk],
-) -> None:
+def _display_result(result: FixtureResult) -> None:
+    fixture = result.fixture
+    ranked = result.ranked
+    fixture_ranks = result.span_ranks
     query = textwrap.shorten(fixture.query, width=72, placeholder="…")
     print(f"{fixture.label:<4} {query}")
 
