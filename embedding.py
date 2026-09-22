@@ -3,13 +3,14 @@ from functools import cache
 from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv()
-
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 
 @cache
 def _client() -> OpenAI:
+    # Loaded here, not at module scope, so importing this module stays free —
+    # the same reason the client itself is lazy.
+    load_dotenv()
     return OpenAI()
 
 
