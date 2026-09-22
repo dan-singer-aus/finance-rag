@@ -36,15 +36,19 @@ A zero vector yields `nan` — cosine is undefined at zero magnitude.
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from functools import cache
 
 import psycopg
 from dotenv import load_dotenv
 from pgvector.psycopg import register_vector
 
-load_dotenv()
 
-
+@cache
 def _database_url() -> str:
+    # Loaded here rather than at module scope: importing this module should not
+    # read the filesystem. Cached because the URL is fixed for the process, so
+    # .env is parsed once rather than per connection.
+    load_dotenv()
     url = os.environ.get("DATABASE_URL")
     if not url:
         raise RuntimeError("DATABASE_URL is not set (copy .env.example to .env).")
