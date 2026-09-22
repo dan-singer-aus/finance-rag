@@ -4,11 +4,12 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel
 
-load_dotenv()
-
 
 @cache
 def _client() -> OpenAI:
+    # Loaded here, not at module scope, so importing this module stays free —
+    # the same reason the client itself is lazy.
+    load_dotenv()
     return OpenAI()
 
 
