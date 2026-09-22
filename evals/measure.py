@@ -70,11 +70,17 @@ def main() -> None:
     ks = args.pop("k")
     # Everything still in `args` becomes the chunker's knobs, so a flag that
     # isn't popped is passed to partial() and raises there instead of here.
+    depths = args.pop("depths")
     reranker = _load_reranker() if args.pop("rerank") else None
-    run = measure_recall(
-        strategy=strategy, knobs=args, captions=captions, reranker=reranker
+    runs = measure_recall(
+        strategy=strategy,
+        knobs=args,
+        captions=captions,
+        reranker=reranker,
+        depths=depths,
     )
-    _display(run, ks)
+    for run in runs:
+        _display(run, ks)
 
 
 def measure_recall(
@@ -83,29 +89,49 @@ def measure_recall(
     knobs: dict[str, int],
     captions: bool = True,
     reranker: Reranker | None = None,
-) -> MeasurementRun:
+    depths: Sequence[int] | None = None,
+) -> list[MeasurementRun]:
+    """Ingest once, then score and record one run per candidate depth."""
     chunker = partial(CHUNKERS[strategy], **knobs)
+    # Depth only means something when something reorders the candidates:
+    # truncating a cosine-ordered list does not change any rank.
+    depths = tuple(depths) if reranker and depths else (RESULTS_WINDOW,)
 
     with connection() as conn:
         ingest_corpus(conn, captions=captions, chunker=chunker)
         corpus = _corpus_stats(conn)
 
-    span_ranks = [
-        rank
-        for result in score_fixtures(reranker.score_pairs if reranker else None)
-        for rank in result.span_ranks
-    ]
+    ranks_by_depth: dict[int, list[SpanRank]] = {depth: [] for depth in depths}
+    scorer = reranker.score_pairs if reranker else None
+    for result in score_fixtures(scorer, depths):
+        ranks_by_depth[result.depth] += result.span_ranks
 
+    # Every depth row shares this; only candidate_depth differs.
     config: dict[str, Any] = {
         "strategy": strategy,
         **knobs,
         "captions": captions,
         "embedding_model": EMBEDDING_MODEL,
-        # Both or neither — the 004 CHECK enforces it. Depth is the whole window
-        # today because rerank() scores every candidate retrieve() returned.
         "reranker": reranker.model_id if reranker else None,
-        "candidate_depth": RESULTS_WINDOW if reranker else None,
     }
+    return [
+        _record(
+            # Both or neither — the 004 CHECK enforces it.
+            config=config | {"candidate_depth": depth if reranker else None},
+            corpus=corpus,
+            span_ranks=span_ranks,
+        )
+        for depth, span_ranks in ranks_by_depth.items()
+    ]
+
+
+def _record(
+    *,
+    config: dict[str, Any],
+    corpus: dict[str, int],
+    span_ranks: list[SpanRank],
+) -> MeasurementRun:
+    """Write one `runs` row and its spans, and return what was written."""
     with connection() as conn:
         run_id = insert_run(conn, config=config, corpus=corpus, span_ranks=span_ranks)
         conn.commit()
@@ -190,6 +216,15 @@ def _parse_args() -> argparse.Namespace:
         "--rerank",
         action="store_true",
         help="reorder the candidates with the cross-encoder before scoring",
+    )
+    common.add_argument(
+        "--depths",
+        type=int,
+        nargs="+",
+        help=(
+            f"candidate depths per corpus to score, one run row each "
+            f"(default: {RESULTS_WINDOW}). Ignored without --rerank."
+        ),
     )
 
     parser = argparse.ArgumentParser(

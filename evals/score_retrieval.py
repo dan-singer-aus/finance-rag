@@ -1,11 +1,12 @@
 import textwrap
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from psycopg import Connection
 
 from db.connection import connection
 from domain.chunks import RankedChunk, RetrievedChunk
+from domain.corpus import CORPORA
 from evals.recall_fixtures import RECALL_FIXTURES, GoldSpan, RecallFixture
 from retrieval.pipeline import retrieve
 from retrieval.reranking import PairScorer, rerank
@@ -32,6 +33,7 @@ class SpanRank:
 @dataclass(frozen=True)
 class FixtureResult:
     fixture: RecallFixture
+    depth: int
     span_ranks: list[SpanRank]
     ranked: list[RankedChunk]
 
@@ -61,27 +63,59 @@ def main(k: int = TOP_K, scorer: PairScorer | None = None) -> list[SpanRank]:
     return span_ranks
 
 
-def score_fixtures(scorer: PairScorer | None = None) -> Iterator[FixtureResult]:
-    """Retrieve, rank and score every fixture, one result at a time."""
+def score_fixtures(
+    scorer: PairScorer | None = None,
+    depths: Sequence[int] = (RESULTS_WINDOW,),
+) -> Iterator[FixtureResult]:
+    """Retrieve, rank and score every fixture, once per candidate depth."""
+    # One retrieve and one rerank per fixture serve every depth: the scorer is
+    # pointwise, so a shallower depth is a filter over the same scored list.
     with connection() as conn:
         for fixture in RECALL_FIXTURES:
-            chunks = retrieve(conn, fixture.query, k=RESULTS_WINDOW)
+            chunks = retrieve(conn, fixture.query, k=max(depths))
+            cosine_ranks = _cosine_ranks(chunks)
             ranked = (
                 rerank(fixture.query, chunks, scorer)
                 if scorer is not None
                 else _by_cosine(chunks)
             )
-            fixture_ranks = [
-                _rank_span(conn, fixture, span, ranked) for span in fixture.spans
-            ]
-            yield FixtureResult(
-                fixture=fixture, span_ranks=fixture_ranks, ranked=ranked
-            )
+            for depth in depths:
+                at_depth = _within_depth(ranked, cosine_ranks, depth)
+                yield FixtureResult(
+                    fixture=fixture,
+                    depth=depth,
+                    span_ranks=[
+                        _rank_span(conn, fixture, span, at_depth)
+                        for span in fixture.spans
+                    ],
+                    ranked=at_depth,
+                )
 
 
 def _by_cosine(chunks: list[RetrievedChunk]) -> list[RankedChunk]:
     """Pair each chunk with its cosine score, which is what ordered this list."""
     return [RankedChunk(chunk=chunk, score=chunk.score) for chunk in chunks]
+
+
+def _cosine_ranks(chunks: list[RetrievedChunk]) -> dict[tuple[int, int], int]:
+    """Each chunk's 1-based position within its own corpus, before reranking."""
+    ranks: dict[tuple[int, int], int] = {}
+    for corpus in CORPORA:
+        in_corpus = [chunk for chunk in chunks if chunk.corpus == corpus]
+        for rank, chunk in enumerate(in_corpus, start=1):
+            ranks[(chunk.source_id, chunk.chunk_index)] = rank
+    return ranks
+
+
+def _within_depth(
+    ranked: list[RankedChunk], cosine_ranks: dict[tuple[int, int], int], depth: int
+) -> list[RankedChunk]:
+    """The reranked list, keeping only candidates cosine ranked within depth."""
+    return [
+        item
+        for item in ranked
+        if cosine_ranks[(item.chunk.source_id, item.chunk.chunk_index)] <= depth
+    ]
 
 
 def _rank_of(span: GoldSpan, ranked: list[RankedChunk]) -> int | None:
@@ -163,6 +197,7 @@ def _display_miss(span_rank: SpanRank, ranked: list[RankedChunk]) -> None:
     print(f"        top {DISPLAY_CHUNKS} returned:")
     for item in ranked[:DISPLAY_CHUNKS]:
         print(f"          {round(item.score, 3)}  {item.chunk.provenance}")
+
     print()
 
 
