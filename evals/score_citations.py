@@ -25,6 +25,7 @@ result.
 
 import textwrap
 from collections import Counter
+from dataclasses import dataclass
 
 from domain.citations import ClaimVerdict
 from evals.answer_fixtures import ANSWER, CONTEXT, EXPECTED_VERDICTS, ExpectedVerdict
@@ -32,6 +33,30 @@ from grounding.citations import judge_claims, locate_citations
 from grounding.claims import split_claims
 
 RUNS = 3
+
+
+@dataclass(frozen=True)
+class ClaimAgreement:
+    """How the runs voted on one expected verdict, on each axis separately."""
+
+    expected: ExpectedVerdict
+    verdict: ClaimVerdict
+    entailments: Counter[str]
+    citations: Counter[tuple[int, ...]]
+    runs: int
+
+    @property
+    def entailment_agreed(self) -> int:
+        return self.entailments[self.expected.entailment]
+
+    @property
+    def citations_agreed(self) -> int:
+        return self.citations[tuple(self.expected.cites)]
+
+    @property
+    def matched(self) -> bool:
+        agreed = self.entailment_agreed == self.runs
+        return agreed and self.citations_agreed == self.runs
 
 
 def main() -> None:
@@ -43,28 +68,41 @@ def main() -> None:
         print("no usable runs — nothing to score")
         return
 
-    matches = 0
-    for verdicts, expected in zip(
-        zip(*usable, strict=True), EXPECTED_VERDICTS, strict=True
-    ):
-        entailments = Counter(verdict.entailment for verdict in verdicts)
-        citations = Counter(
-            tuple(verdict.located.claim.citations) for verdict in verdicts
-        )
+    agreements = _agree(usable)
+    for agreement in agreements:
+        _display_result(agreement)
+        if not agreement.matched:
+            _display_disagreement(agreement)
 
-        entailment_agreed = entailments[expected.entailment]
-        citations_agreed = citations[tuple(expected.cites)]
-        matched = entailment_agreed == len(usable) and citations_agreed == len(usable)
-
-        _display_result(
-            verdicts[0], expected, entailment_agreed, citations_agreed, len(usable)
-        )
-        if matched:
-            matches += 1
-        else:
-            _display_disagreement(entailments, citations, expected)
-
+    matches = sum(1 for agreement in agreements if agreement.matched)
     print(f"\n{matches}/{len(EXPECTED_VERDICTS)} matched across {len(usable)} run(s)")
+
+
+def _agree(usable: list[list[ClaimVerdict]]) -> list[ClaimAgreement]:
+    """Transpose runs-of-claims into claims-across-runs, and tally each axis.
+
+    `zip(*usable)` is the pivot the whole suite rests on: it turns N runs of M
+    claims into M positions, each holding that claim's verdict from every run.
+    Pairing to expectations by position holds only because the splitter happens
+    to emit claims in order, which is why a run with the wrong claim count is
+    excluded upstream rather than padded.
+    """
+    return [
+        ClaimAgreement(
+            expected=expected,
+            # For the claim text only — the splitter may word it differently in
+            # the other runs.
+            verdict=verdicts[0],
+            entailments=Counter(verdict.entailment for verdict in verdicts),
+            citations=Counter(
+                tuple(verdict.located.claim.citations) for verdict in verdicts
+            ),
+            runs=len(usable),
+        )
+        for verdicts, expected in zip(
+            zip(*usable, strict=True), EXPECTED_VERDICTS, strict=True
+        )
+    ]
 
 
 def _run_once() -> list[ClaimVerdict]:
@@ -92,44 +130,41 @@ def _display_run_counts(
     print()
 
 
-def _display_result(
-    verdict: ClaimVerdict,
-    expected: ExpectedVerdict,
-    entailment_agreed: int,
-    citations_agreed: int,
-    total: int,
-) -> None:
+def _display_result(agreement: ClaimAgreement) -> None:
     """One row per expected verdict: the claim, then each axis as expected + agreement.
 
     Each axis carries its own marker, so a failure says WHICH half disagreed —
     a row can be wrong on the entailment, on the citations, or on both, and
-    those are different findings. The claim text is taken from the first usable
-    run purely as a label; the splitter may word it differently in the others.
+    those are different findings.
     """
-    claim = textwrap.shorten(verdict.located.claim.text, width=58, placeholder="…")
-    overall = _mark(entailment_agreed == total and citations_agreed == total)
-    entailment_mark = _mark(entailment_agreed == total)
-    citations_mark = _mark(citations_agreed == total)
+    expected, runs = agreement.expected, agreement.runs
+    entailment_agreed = agreement.entailment_agreed
+    citations_agreed = agreement.citations_agreed
+
+    claim = textwrap.shorten(
+        agreement.verdict.located.claim.text, width=58, placeholder="…"
+    )
+    entailment_mark = _mark(entailment_agreed == runs)
+    citations_mark = _mark(citations_agreed == runs)
     print(
-        f"{overall}  {claim:<58}  "
-        f"{entailment_mark} {expected.entailment:<12} {entailment_agreed}/{total}  "
-        f"{citations_mark} cites {_cites(expected.cites):>5} {citations_agreed}/{total}"
+        f"{_mark(agreement.matched)}  {claim:<58}  "
+        f"{entailment_mark} {expected.entailment:<12} {entailment_agreed}/{runs}  "
+        f"{citations_mark} cites {_cites(expected.cites):>5} {citations_agreed}/{runs}"
     )
 
 
-def _display_disagreement(
-    entailments: Counter[str],
-    citations: Counter[tuple[int, ...]],
-    expected: ExpectedVerdict,
-) -> None:
+def _display_disagreement(agreement: ClaimAgreement) -> None:
     """What actually came back, and the reasoning the expectation rests on.
 
     `why` is printed because on a disagreement the two candidates are "the
     checker is wrong" and "the fixture is wrong" — without the recorded
     reasoning, the tempting fix is to edit the expectation until it matches.
     """
-    citation_tally = {_cites(list(cites)): n for cites, n in citations.items()}
-    print(f"      entailment: {_tally(entailments)}")
+    expected = agreement.expected
+    citation_tally = {
+        _cites(list(cites)): n for cites, n in agreement.citations.items()
+    }
+    print(f"      entailment: {_tally(agreement.entailments)}")
     print(f"      citations:  {_tally(citation_tally)}")
     print(
         textwrap.fill(
