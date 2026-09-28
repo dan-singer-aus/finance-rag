@@ -1,4 +1,17 @@
-from evals.score_retrieval import mrr, recall_at
+from evals.recall_fixtures import GoldSpan
+from evals.score_retrieval import SpanRank, graded_only, is_reachable, mrr, recall_at
+
+
+def _gold_span(*, graded: bool) -> GoldSpan:
+    return GoldSpan(
+        corpus="filings",
+        company=None,
+        fiscal_year=2025,
+        section=None,
+        excerpt="x",
+        why="test",
+        graded=graded,
+    )
 
 
 def test_a_span_at_exactly_k_is_a_hit() -> None:
@@ -44,3 +57,40 @@ def test_an_unranked_span_contributes_zero_but_still_counts() -> None:
 
 def test_mrr_does_not_depend_on_the_order_of_the_spans() -> None:
     assert mrr([1, None, 4]) == mrr([4, 1, None])
+
+
+def test_graded_only_excludes_ungraded_spans() -> None:
+    graded = SpanRank(
+        label="F2",
+        span=_gold_span(graded=True),
+        containable=True,
+        merged_rank=1,
+        corpus_rank=1,
+    )
+    ungraded = SpanRank(
+        label="F1",
+        span=_gold_span(graded=False),
+        containable=True,
+        merged_rank=1,
+        corpus_rank=1,
+    )
+
+    assert graded_only([graded, ungraded]) == [graded]
+
+
+def test_is_reachable_requires_both_containable_and_a_rank() -> None:
+    span = _gold_span(graded=False)
+
+    reachable = SpanRank(
+        label="F1", span=span, containable=True, merged_rank=5, corpus_rank=5
+    )
+    not_containable = SpanRank(
+        label="F1", span=span, containable=False, merged_rank=5, corpus_rank=5
+    )
+    not_ranked = SpanRank(
+        label="F1", span=span, containable=True, merged_rank=None, corpus_rank=None
+    )
+
+    assert is_reachable(reachable)
+    assert not is_reachable(not_containable)
+    assert not is_reachable(not_ranked)
