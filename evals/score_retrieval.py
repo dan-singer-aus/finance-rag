@@ -6,10 +6,12 @@ from psycopg import Connection
 
 from db.connection import connection
 from domain.chunks import RankedChunk, RetrievedChunk
-from domain.corpus import CORPORA
+from domain.corpus import CORPORA, Corpus
+from domain.queries import CorpusQuery, issued
 from evals.recall_fixtures import RECALL_FIXTURES, GoldSpan, RecallFixture
 from retrieval.pipeline import retrieve
 from retrieval.reranking import PairScorer, rerank
+from retrieval.rewriting import rewrite_query
 
 CONTAINMENT_SQL = """
     SELECT count(*)::int FROM chunks WHERE strpos(chunk_text, %(excerpt)s) > 0
@@ -36,6 +38,9 @@ class FixtureResult:
     depth: int
     span_ranks: list[SpanRank]
     ranked: list[RankedChunk]
+    # What was sent, per corpus -- repeated across this fixture's depth results,
+    # because each depth is its own `runs` row and needs its own query rows.
+    issued_queries: dict[Corpus, CorpusQuery]
 
 
 @dataclass(frozen=True)
@@ -49,22 +54,26 @@ class RecallResult:
         return self.hits / self.spans
 
 
-def main(k: int = TOP_K, scorer: PairScorer | None = None) -> list[SpanRank]:
+def main(
+    k: int = TOP_K, scorer: PairScorer | None = None, rewrite: bool = False
+) -> list[SpanRank]:
     """Score recall@k over every fixture, print the report, return the numbers."""
     span_ranks: list[SpanRank] = []
-    for result in score_fixtures(scorer):
+    for result in score_fixtures(scorer, rewrite=rewrite):
         _display_result(result)
         span_ranks += result.span_ranks
 
-    merged = [span_rank.merged_rank for span_rank in span_ranks]
+    merged = [span_rank.merged_rank for span_rank in graded_only(span_ranks)]
     recall = recall_at(merged, k)
     print(f"\nrecall@{k}: {recall.hits}/{recall.spans} ({recall.recall:.0%})")
     print(f"MRR: {mrr(merged):.3f}")
+    _display_reachability(span_ranks)
     return span_ranks
 
 
 def score_fixtures(
     scorer: PairScorer | None = None,
+    rewrite: bool = False,
     depths: Sequence[int] = (RESULTS_WINDOW,),
 ) -> Iterator[FixtureResult]:
     """Retrieve, rank and score every fixture, once per candidate depth."""
@@ -72,10 +81,20 @@ def score_fixtures(
     # pointwise, so a shallower depth is a filter over the same scored list.
     with connection() as conn:
         for fixture in RECALL_FIXTURES:
-            chunks = retrieve(conn, fixture.query, k=max(depths))
+            # Computed once and reused for both retrieval and reranking below
+            # -- rewrite_query is a non-deterministic model call, so calling
+            # it a second time here could decompose the same question two
+            # different ways and silently misalign the two steps.
+            rewritten = rewrite_query(conn, fixture.query) if rewrite else None
+            # Resolved once, here: what was actually sent per corpus. Everything
+            # downstream -- reranking, and the stored run_queries rows -- reads
+            # this rather than re-deriving it from `rewritten`, which is how
+            # rerank() came to score against a query retrieve() never used.
+            issued_queries = issued(fixture.query, rewritten)
+            chunks = retrieve(conn, fixture.query, k=max(depths), rewritten=rewritten)
             cosine_ranks = _cosine_ranks(chunks)
             ranked = (
-                rerank(fixture.query, chunks, scorer)
+                rerank(_queries_for(chunks, issued_queries), chunks, scorer)
                 if scorer is not None
                 else _by_cosine(chunks)
             )
@@ -89,7 +108,24 @@ def score_fixtures(
                         for span in fixture.spans
                     ],
                     ranked=at_depth,
+                    issued_queries=issued_queries,
                 )
+
+
+def _queries_for(
+    chunks: list[RetrievedChunk], issued_queries: dict[Corpus, CorpusQuery]
+) -> list[str]:
+    """Each chunk's own corpus-specific query."""
+    return [_corpus_query(issued_queries, chunk.corpus) for chunk in chunks]
+
+
+def _corpus_query(issued_queries: dict[Corpus, CorpusQuery], corpus: Corpus) -> str:
+    corpus_query = issued_queries[corpus].query
+    if corpus_query is None:
+        raise ValueError(
+            f"retrieve() returned a chunk from {corpus!r}, which the rewriter ruled out"
+        )
+    return corpus_query
 
 
 def _by_cosine(chunks: list[RetrievedChunk]) -> list[RankedChunk]:
@@ -153,6 +189,16 @@ def _is_containable(conn: Connection, span: GoldSpan) -> bool:
     return bool(found)
 
 
+def graded_only(span_ranks: Sequence[SpanRank]) -> list[SpanRank]:
+    """Spans that assert a rank -- excludes containment-only checks like F1."""
+    return [span_rank for span_rank in span_ranks if span_rank.span.graded]
+
+
+def is_reachable(span_rank: SpanRank) -> bool:
+    """Survived chunking whole, and reached the candidate window at all."""
+    return span_rank.containable and span_rank.merged_rank is not None
+
+
 def recall_at(ranks: list[int | None], k: int) -> RecallResult:
     """How many spans landed in the top k."""
     hits = sum(1 for rank in ranks if rank is not None and rank <= k)
@@ -199,6 +245,17 @@ def _display_miss(span_rank: SpanRank, ranked: list[RankedChunk]) -> None:
         print(f"          {round(item.score, 3)}  {item.chunk.provenance}")
 
     print()
+
+
+def _display_reachability(span_ranks: list[SpanRank]) -> None:
+    ungraded = [span_rank for span_rank in span_ranks if not span_rank.span.graded]
+    if not ungraded:
+        return
+
+    print("\nreachability checks (containable + in window, not ranked):")
+    for span_rank in ungraded:
+        status = "pass" if is_reachable(span_rank) else "fail"
+        print(f"  {span_rank.label:<4} {span_rank.span.corpus:<8} {status}")
 
 
 def _rank(rank: int | None) -> str:

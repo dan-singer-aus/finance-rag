@@ -14,9 +14,10 @@ def _model() -> CrossEncoder:
     return model
 
 
-def score_pairs(query: str, texts: list[str]) -> list[tuple[int, float]]:
-    ranks = _model().rank(query, texts)
-    return [(int(rank["corpus_id"]), float(rank["score"])) for rank in ranks]
+def score_pairs(pairs: list[tuple[str, str]]) -> list[float]:
+    """Score each (query, text) pair independently, order preserved."""
+    scores = _model().predict(pairs)
+    return [float(score) for score in scores]
 
 
 def reranker() -> Reranker:
