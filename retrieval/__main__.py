@@ -41,7 +41,8 @@ def _reranked(
     from retrieval.cross_encoder import reranker  # noqa: PLC0415
 
     scorer = reranker().score_pairs
-    return [(item.chunk, item.score) for item in rerank(query, chunks, scorer)]
+    queries = [query] * len(chunks)
+    return [(item.chunk, item.score) for item in rerank(queries, chunks, scorer)]
 
 
 def _format_result(rank: int, chunk: RetrievedChunk, score: float) -> str:

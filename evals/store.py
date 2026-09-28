@@ -9,6 +9,8 @@ from typing import Any
 
 from psycopg import Connection
 
+from domain.corpus import Corpus
+from domain.queries import CorpusQuery
 from evals.score_retrieval import SpanRank
 
 # Named parameters: eleven columns is where a positional tuple starts drifting out
@@ -16,13 +18,13 @@ from evals.score_retrieval import SpanRank
 INSERT_RUN_SQL = """
     INSERT INTO runs (
         strategy, target_size, overlap, captions, embedding_model,
-        reranker, candidate_depth,
+        reranker, candidate_depth, rewriter,
         chunks, median_chars, max_chars, under_120
     )
     VALUES (
         %(strategy)s, %(target_size)s, %(overlap)s, %(captions)s,
         %(embedding_model)s,
-        %(reranker)s, %(candidate_depth)s,
+        %(reranker)s, %(candidate_depth)s, %(rewriter)s,
         %(chunks)s, %(median_chars)s, %(max_chars)s, %(under_120)s
     )
     RETURNING id
@@ -35,6 +37,11 @@ INSERT_RUN_SPAN_SQL = """
     VALUES (%s, %s, %s, %s, %s, %s, %s)
 """
 
+INSERT_RUN_QUERY_SQL = """
+    INSERT INTO run_queries (run_id, label, corpus, query, reasoning)
+    VALUES (%s, %s, %s, %s, %s)
+"""
+
 
 def insert_run(
     conn: Connection,
@@ -42,8 +49,9 @@ def insert_run(
     config: dict[str, Any],
     corpus: dict[str, int],
     span_ranks: list[SpanRank],
+    queries: dict[str, dict[Corpus, CorpusQuery]],
 ) -> int:
-    """Insert the run and its spans, returning the new run's id."""
+    """Insert the run, its spans and its queries, returning the new run's id."""
     params = {
         "strategy": config["strategy"],
         "target_size": config.get("target_size"),
@@ -52,6 +60,7 @@ def insert_run(
         "embedding_model": config["embedding_model"],
         "reranker": config.get("reranker"),
         "candidate_depth": config.get("candidate_depth"),
+        "rewriter": config.get("rewriter"),
         **corpus,
     }
 
@@ -75,6 +84,21 @@ def insert_run(
                     span_rank.corpus_rank,
                 )
                 for span_rank in span_ranks
+            ],
+        )
+
+        cursor.executemany(
+            INSERT_RUN_QUERY_SQL,
+            [
+                (
+                    run_id,
+                    label,
+                    corpus_name,
+                    corpus_query.query,
+                    corpus_query.reasoning,
+                )
+                for label, by_corpus in queries.items()
+                for corpus_name, corpus_query in by_corpus.items()
             ],
         )
 

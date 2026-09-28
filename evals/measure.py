@@ -24,11 +24,14 @@ from typing import Any
 from psycopg import Connection
 
 from db.connection import connection
+from domain.corpus import Corpus
+from domain.queries import CorpusQuery
 from embedding import EMBEDDING_MODEL
 from evals.score_retrieval import (
     RESULTS_WINDOW,
     TOP_K,
     SpanRank,
+    graded_only,
     mrr,
     recall_at,
     score_fixtures,
@@ -37,6 +40,7 @@ from evals.store import insert_run
 from ingest.chunking import TARGET_SIZE, by_characters, by_line, by_window
 from ingest.pipeline import ingest_corpus
 from retrieval.reranking import Reranker
+from retrieval.rewriting import REWRITE_MODEL
 
 CHUNKERS: dict[str, Callable[..., list[str]]] = {
     "by-line": by_line,
@@ -63,6 +67,32 @@ class MeasurementRun:
     span_ranks: list[SpanRank]
 
 
+@dataclass(frozen=True)
+class RerankConfig:
+    """Depth only means anything with a reranker present -- one param, not two."""
+
+    reranker: Reranker
+    depths: Sequence[int] | None = None
+
+
+@dataclass(frozen=True)
+class ScoringConfig:
+    """What happens to the corpus once it exists, independent of how it was built.
+
+    Grouped because `measure_recall` straddles two phases -- build, then score --
+    and its signature should say which knob belongs to which.
+    """
+
+    rerank: RerankConfig | None = None
+    rewrite: bool = False
+    repeats: int = 1
+
+
+# A module-level singleton rather than a call in the default: the record is
+# frozen, so sharing one instance is safe, and B008 bans the call regardless.
+DEFAULT_SCORING = ScoringConfig()
+
+
 def main() -> None:
     args = vars(_parse_args())
     strategy = args.pop("strategy")
@@ -72,12 +102,14 @@ def main() -> None:
     # isn't popped is passed to partial() and raises there instead of here.
     depths = args.pop("depths")
     reranker = _load_reranker() if args.pop("rerank") else None
+    rewrite = args.pop("rewrite")
+    repeats = args.pop("repeats")
+    rerank = RerankConfig(reranker, depths) if reranker else None
     runs = measure_recall(
         strategy=strategy,
         knobs=args,
         captions=captions,
-        reranker=reranker,
-        depths=depths,
+        scoring=ScoringConfig(rerank=rerank, rewrite=rewrite, repeats=repeats),
     )
     for run in runs:
         _display(run, ks)
@@ -88,38 +120,75 @@ def measure_recall(
     strategy: str,
     knobs: dict[str, int],
     captions: bool = True,
-    reranker: Reranker | None = None,
-    depths: Sequence[int] | None = None,
+    scoring: ScoringConfig = DEFAULT_SCORING,
 ) -> list[MeasurementRun]:
-    """Ingest once, then score and record one run per candidate depth."""
+    """Ingest once, then score `repeats` times, recording a run per depth each."""
     chunker = partial(CHUNKERS[strategy], **knobs)
+    rerank = scoring.rerank
     # Depth only means something when something reorders the candidates:
     # truncating a cosine-ordered list does not change any rank.
-    depths = tuple(depths) if reranker and depths else (RESULTS_WINDOW,)
+    depths = tuple(rerank.depths) if rerank and rerank.depths else (RESULTS_WINDOW,)
 
+    # Deliberately OUTSIDE the repeat loop. The corpus is the variable being held
+    # constant, so a repeat that re-ingested would vary the chunking as well as
+    # the rewriter and no difference between rows could be attributed.
     with connection() as conn:
         ingest_corpus(conn, captions=captions, chunker=chunker)
         corpus = _corpus_stats(conn)
 
-    ranks_by_depth: dict[int, list[SpanRank]] = {depth: [] for depth in depths}
-    scorer = reranker.score_pairs if reranker else None
-    for result in score_fixtures(scorer, depths):
-        ranks_by_depth[result.depth] += result.span_ranks
-
-    # Every depth row shares this; only candidate_depth differs.
+    # Every row shares this, across repeats as well as depths; only
+    # candidate_depth differs.
     config: dict[str, Any] = {
         "strategy": strategy,
         **knobs,
         "captions": captions,
         "embedding_model": EMBEDDING_MODEL,
-        "reranker": reranker.model_id if reranker else None,
+        "reranker": rerank.reranker.model_id if rerank else None,
+        "rewriter": REWRITE_MODEL if scoring.rewrite else None,
     }
+    return [
+        run
+        for _ in range(scoring.repeats)
+        for run in _score_and_record(
+            config=config,
+            corpus=corpus,
+            depths=depths,
+            scoring=scoring,
+        )
+    ]
+
+
+def _score_and_record(
+    *,
+    config: dict[str, Any],
+    corpus: dict[str, int],
+    depths: tuple[int, ...],
+    scoring: ScoringConfig,
+) -> list[MeasurementRun]:
+    """One scoring pass over every fixture: one run row per candidate depth.
+
+    Re-running this against an unchanged corpus is what makes a repeat: with
+    `rewrite` off it is deterministic and every row should agree, so a difference
+    is the rewriter and nothing else.
+    """
+    ranks_by_depth: dict[int, list[SpanRank]] = {depth: [] for depth in depths}
+    # Keyed by label, not appended to: a fixture yields one result per depth
+    # carrying the same queries, and `run_queries` is unique per (run, fixture,
+    # corpus), so accumulating them would insert the same row once per depth.
+    queries_by_label: dict[str, dict[Corpus, CorpusQuery]] = {}
+    rerank = scoring.rerank
+    scorer = rerank.reranker.score_pairs if rerank else None
+    for result in score_fixtures(scorer, rewrite=scoring.rewrite, depths=depths):
+        ranks_by_depth[result.depth] += result.span_ranks
+        queries_by_label[result.fixture.label] = result.issued_queries
+
     return [
         _record(
             # Both or neither — the 004 CHECK enforces it.
-            config=config | {"candidate_depth": depth if reranker else None},
+            config=config | {"candidate_depth": depth if rerank else None},
             corpus=corpus,
             span_ranks=span_ranks,
+            queries=queries_by_label,
         )
         for depth, span_ranks in ranks_by_depth.items()
     ]
@@ -130,10 +199,17 @@ def _record(
     config: dict[str, Any],
     corpus: dict[str, int],
     span_ranks: list[SpanRank],
+    queries: dict[str, dict[Corpus, CorpusQuery]],
 ) -> MeasurementRun:
-    """Write one `runs` row and its spans, and return what was written."""
+    """Write one `runs` row, its spans and its queries, and return what was written."""
     with connection() as conn:
-        run_id = insert_run(conn, config=config, corpus=corpus, span_ranks=span_ranks)
+        run_id = insert_run(
+            conn,
+            config=config,
+            corpus=corpus,
+            span_ranks=span_ranks,
+            queries=queries,
+        )
         conn.commit()
 
     return MeasurementRun(
@@ -195,7 +271,7 @@ def _display(run: MeasurementRun, ks: Sequence[int]) -> None:
         f"| max {corpus['max_chars']} | under-120 {corpus['under_120']}"
     )
     containment = _containment(run.span_ranks)
-    merged = [span_rank.merged_rank for span_rank in run.span_ranks]
+    merged = [span_rank.merged_rank for span_rank in graded_only(run.span_ranks)]
     ceiling = f"{containment['containable']}/{containment['spans']}"
     lost = f"  lost: {', '.join(containment['lost'])}" if containment["lost"] else ""
     print(f"containable: {ceiling}{lost}")
@@ -203,6 +279,8 @@ def _display(run: MeasurementRun, ks: Sequence[int]) -> None:
         result = recall_at(merged, k)
         print(f"recall@{k}: {result.hits}/{result.spans} ({result.recall:.0%})")
     print(f"MRR: {mrr(merged):.3f}")
+    if len(merged) != len(run.span_ranks):
+        print(f"  (excludes {len(run.span_ranks) - len(merged)} ungraded span(s))")
     print(f"\nrun {run.run_id}")
 
 
@@ -216,6 +294,21 @@ def _parse_args() -> argparse.Namespace:
         "--rerank",
         action="store_true",
         help="reorder the candidates with the cross-encoder before scoring",
+    )
+    common.add_argument(
+        "--rewrite",
+        action="store_true",
+        help="decompose the query per-corpus before retrieval",
+    )
+    common.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help=(
+            "score the same corpus this many times, one run row per repeat per "
+            "depth. Ingests once. Without --rewrite every repeat should agree, "
+            "which is the control for the rewriter's own variance."
+        ),
     )
     common.add_argument(
         "--depths",
