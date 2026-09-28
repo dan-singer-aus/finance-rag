@@ -3,7 +3,11 @@ from dataclasses import dataclass
 
 from domain.chunks import RankedChunk, RetrievedChunk
 
-type PairScorer = Callable[[str, list[str]], list[tuple[int, float]]]
+# One query per pair, not one shared query for the whole batch: a chunk
+# retrieved via a rewritten per-corpus query must be scored against THAT
+# query, not the original composite question it was never meant to fully
+# answer on its own -- see the needs-both regression this fixes.
+type PairScorer = Callable[[list[tuple[str, str]]], list[float]]
 
 
 @dataclass(frozen=True)
@@ -13,9 +17,12 @@ class Reranker:
 
 
 def rerank(
-    query: str, chunks: list[RetrievedChunk], scorer: PairScorer
+    queries: list[str], chunks: list[RetrievedChunk], scorer: PairScorer
 ) -> list[RankedChunk]:
-    texts = [chunk.chunk_text for chunk in chunks]
-    scores = scorer(query, texts)
-    ranked = sorted(scores, key=lambda pair: pair[1], reverse=True)
-    return [RankedChunk(chunk=chunks[index], score=score) for index, score in ranked]
+    """queries[i] is scored against chunks[i] -- same length, positionally paired."""
+    pairs = list(zip(queries, (chunk.chunk_text for chunk in chunks), strict=True))
+    scores = scorer(pairs)
+    ranked = sorted(
+        zip(chunks, scores, strict=True), key=lambda pair: pair[1], reverse=True
+    )
+    return [RankedChunk(chunk=chunk, score=score) for chunk, score in ranked]
