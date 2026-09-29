@@ -10,7 +10,7 @@ DEFAULT_K = 5
 RRF_K = 60
 
 
-def retrieve(
+def find_candidates(
     conn: Connection,
     query: str,
     k: int = DEFAULT_K,
