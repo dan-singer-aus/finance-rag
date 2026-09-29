@@ -9,7 +9,7 @@ from domain.chunks import RankedChunk, RetrievedChunk
 from domain.corpus import CORPORA, Corpus
 from domain.queries import CorpusQuery, issued
 from evals.recall_fixtures import RECALL_FIXTURES, GoldSpan, RecallFixture
-from retrieval.pipeline import retrieve
+from retrieval.candidates import find_candidates
 from retrieval.reranking import PairScorer, rerank
 from retrieval.rewriting import rewrite_query
 
@@ -91,7 +91,9 @@ def score_fixtures(
             # this rather than re-deriving it from `rewritten`, which is how
             # rerank() came to score against a query retrieve() never used.
             issued_queries = issued(fixture.query, rewritten)
-            chunks = retrieve(conn, fixture.query, k=max(depths), rewritten=rewritten)
+            chunks = find_candidates(
+                conn, fixture.query, k=max(depths), rewritten=rewritten
+            )
             cosine_ranks = _cosine_ranks(chunks)
             ranked = (
                 rerank(_queries_for(chunks, issued_queries), chunks, scorer)
@@ -123,7 +125,8 @@ def _corpus_query(issued_queries: dict[Corpus, CorpusQuery], corpus: Corpus) -> 
     corpus_query = issued_queries[corpus].query
     if corpus_query is None:
         raise ValueError(
-            f"retrieve() returned a chunk from {corpus!r}, which the rewriter ruled out"
+            f"find_candidates() returned a chunk from {corpus!r}, "
+            "which the rewriter ruled out"
         )
     return corpus_query
 

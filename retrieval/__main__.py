@@ -3,7 +3,7 @@ import textwrap
 
 from db.connection import connection
 from domain.chunks import RetrievedChunk
-from retrieval.pipeline import retrieve
+from retrieval.candidates import find_candidates
 from retrieval.reranking import rerank
 
 
@@ -11,7 +11,7 @@ def main() -> None:
     args = _parse_args()
 
     with connection() as conn:
-        results = retrieve(conn, args.query)
+        results = find_candidates(conn, args.query)
 
     ranked = _reranked(args.query, results) if args.rerank else _as_scored(results)
 

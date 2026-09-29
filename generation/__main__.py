@@ -19,7 +19,7 @@ import textwrap
 from db.connection import connection
 from domain.answers import GeneratedAnswer
 from generation.answer import DEFAULT_PROMPT, generate
-from retrieval.pipeline import retrieve
+from retrieval.candidates import find_candidates
 
 
 def main() -> None:
@@ -29,7 +29,7 @@ def main() -> None:
     # holding a Postgres connection open across it buys nothing.
     with connection() as conn:
         print(f"Retrieving evidence for: {args.query}", file=sys.stderr)
-        context = retrieve(conn, args.query)
+        context = find_candidates(conn, args.query)
 
     print(f"Generating with prompt {args.prompt!r}...", file=sys.stderr)
     answer = generate(question=args.query, context=context, prompt_name=args.prompt)
