@@ -28,6 +28,7 @@ from domain.corpus import Corpus
 from domain.queries import CorpusQuery
 from embedding import EMBEDDING_MODEL
 from evals.score_retrieval import (
+    DEFAULT_RETRIEVAL,
     RESULTS_WINDOW,
     TOP_K,
     SpanRank,
@@ -39,7 +40,8 @@ from evals.score_retrieval import (
 from evals.store import insert_run
 from ingest.chunking import TARGET_SIZE, by_characters, by_line, by_window
 from ingest.pipeline import ingest_corpus
-from retrieval.reranking import Reranker
+from retrieval.pipeline import RetrievalConfig
+from retrieval.reranking import load_reranker
 from retrieval.rewriting import REWRITE_MODEL
 
 CHUNKERS: dict[str, Callable[..., list[str]]] = {
@@ -68,23 +70,9 @@ class MeasurementRun:
 
 
 @dataclass(frozen=True)
-class RerankConfig:
-    """Depth only means anything with a reranker present -- one param, not two."""
-
-    reranker: Reranker
-    depths: Sequence[int] | None = None
-
-
-@dataclass(frozen=True)
 class ScoringConfig:
-    """What happens to the corpus once it exists, independent of how it was built.
-
-    Grouped because `measure_recall` straddles two phases -- build, then score --
-    and its signature should say which knob belongs to which.
-    """
-
-    rerank: RerankConfig | None = None
-    rewrite: bool = False
+    retrieval: RetrievalConfig = DEFAULT_RETRIEVAL
+    depths: Sequence[int] = (RESULTS_WINDOW,)
     repeats: int = 1
 
 
@@ -100,16 +88,19 @@ def main() -> None:
     ks = args.pop("k")
     # Everything still in `args` becomes the chunker's knobs, so a flag that
     # isn't popped is passed to partial() and raises there instead of here.
-    depths = args.pop("depths")
-    reranker = _load_reranker() if args.pop("rerank") else None
+    requested_depths = args.pop("depths")
+    reranker = load_reranker() if args.pop("rerank") else None
     rewrite = args.pop("rewrite")
     repeats = args.pop("repeats")
-    rerank = RerankConfig(reranker, depths) if reranker else None
+    depths = (
+        tuple(requested_depths) if reranker and requested_depths else (RESULTS_WINDOW,)
+    )
+    retrieval = RetrievalConfig(reranker=reranker, rewrite=rewrite, k=max(depths))
     runs = measure_recall(
         strategy=strategy,
         knobs=args,
         captions=captions,
-        scoring=ScoringConfig(rerank=rerank, rewrite=rewrite, repeats=repeats),
+        scoring=ScoringConfig(retrieval=retrieval, depths=depths, repeats=repeats),
     )
     for run in runs:
         _display(run, ks)
@@ -124,11 +115,7 @@ def measure_recall(
 ) -> list[MeasurementRun]:
     """Ingest once, then score `repeats` times, recording a run per depth each."""
     chunker = partial(CHUNKERS[strategy], **knobs)
-    rerank = scoring.rerank
-    # Depth only means something when something reorders the candidates:
-    # truncating a cosine-ordered list does not change any rank.
-    depths = tuple(rerank.depths) if rerank and rerank.depths else (RESULTS_WINDOW,)
-
+    rerank = scoring.retrieval.reranker
     # Deliberately OUTSIDE the repeat loop. The corpus is the variable being held
     # constant, so a repeat that re-ingested would vary the chunking as well as
     # the rewriter and no difference between rows could be attributed.
@@ -143,8 +130,8 @@ def measure_recall(
         **knobs,
         "captions": captions,
         "embedding_model": EMBEDDING_MODEL,
-        "reranker": rerank.reranker.model_id if rerank else None,
-        "rewriter": REWRITE_MODEL if scoring.rewrite else None,
+        "reranker": rerank.model_id if rerank else None,
+        "rewriter": REWRITE_MODEL if scoring.retrieval.rewrite else None,
     }
     return [
         run
@@ -152,7 +139,6 @@ def measure_recall(
         for run in _score_and_record(
             config=config,
             corpus=corpus,
-            depths=depths,
             scoring=scoring,
         )
     ]
@@ -162,7 +148,6 @@ def _score_and_record(
     *,
     config: dict[str, Any],
     corpus: dict[str, int],
-    depths: tuple[int, ...],
     scoring: ScoringConfig,
 ) -> list[MeasurementRun]:
     """One scoring pass over every fixture: one run row per candidate depth.
@@ -171,14 +156,13 @@ def _score_and_record(
     `rewrite` off it is deterministic and every row should agree, so a difference
     is the rewriter and nothing else.
     """
-    ranks_by_depth: dict[int, list[SpanRank]] = {depth: [] for depth in depths}
+    ranks_by_depth: dict[int, list[SpanRank]] = {depth: [] for depth in scoring.depths}
     # Keyed by label, not appended to: a fixture yields one result per depth
     # carrying the same queries, and `run_queries` is unique per (run, fixture,
     # corpus), so accumulating them would insert the same row once per depth.
     queries_by_label: dict[str, dict[Corpus, CorpusQuery]] = {}
-    rerank = scoring.rerank
-    scorer = rerank.reranker.score_pairs if rerank else None
-    for result in score_fixtures(scorer, rewrite=scoring.rewrite, depths=depths):
+    rerank = scoring.retrieval.reranker
+    for result in score_fixtures(scoring.retrieval, depths=scoring.depths):
         ranks_by_depth[result.depth] += result.span_ranks
         queries_by_label[result.fixture.label] = result.issued_queries
 
@@ -249,16 +233,6 @@ def _corpus_stats(conn: Connection) -> dict[str, int]:
         "max_chars": max_chars,
         "under_120": under_120,
     }
-
-
-def _load_reranker() -> Reranker:
-    """Build the cross-encoder reranker, importing torch only if asked for it."""
-    # sentence-transformers lives in the non-default `rerank` group, so a
-    # top-level import would cost every unreranked run a multi-second torch
-    # import and break CI, which is deliberately denied the package.
-    from retrieval.cross_encoder import reranker  # noqa: PLC0415
-
-    return reranker()
 
 
 def _display(run: MeasurementRun, ks: Sequence[int]) -> None:

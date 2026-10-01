@@ -18,18 +18,35 @@ import textwrap
 
 from db.connection import connection
 from domain.answers import GeneratedAnswer
+from domain.chunks import RankedChunk, RetrievedChunk
+from domain.corpus import CORPORA
 from generation.answer import DEFAULT_PROMPT, generate
-from retrieval.pipeline import retrieve
+from retrieval.candidates import DEFAULT_K
+from retrieval.pipeline import RetrievalConfig, retrieve
+from retrieval.reranking import load_reranker
+
+# Placeholder policy until corpus routing / a corpus floor exists: hand the
+# generator the same 5-per-corpus it always got, but when reranking, choose
+# those 5 from a deeper candidate set -- depth 50 is where the rerank grid
+# saturated (progress.md 2026-09-22).
+CONTEXT_PER_CORPUS = DEFAULT_K
+RERANK_DEPTH = 50
 
 
 def main() -> None:
     args = _parse_args()
+    config = RetrievalConfig(
+        reranker=load_reranker() if args.rerank else None,
+        rewrite=args.rewrite,
+        k=RERANK_DEPTH if args.rerank else CONTEXT_PER_CORPUS,
+    )
 
     # Only retrieval needs the connection. Generation is a slow model call, and
     # holding a Postgres connection open across it buys nothing.
     with connection() as conn:
         print(f"Retrieving evidence for: {args.query}", file=sys.stderr)
-        context = retrieve(conn, args.query)
+        result = retrieve(conn, args.query, config)
+    context = _top_per_corpus(result.ranked, CONTEXT_PER_CORPUS)
 
     print(f"Generating with prompt {args.prompt!r}...", file=sys.stderr)
     answer = generate(question=args.query, context=context, prompt_name=args.prompt)
@@ -52,11 +69,26 @@ def _parse_args() -> argparse.Namespace:
         help=f"prompt arm in prompts/ (default: {DEFAULT_PROMPT})",
     )
     parser.add_argument(
+        "--rerank", action="store_true", help="reorder with the cross-encoder"
+    )
+    parser.add_argument(
+        "--rewrite", action="store_true", help="decompose the query per corpus"
+    )
+    parser.add_argument(
         "--evidence",
         action="store_true",
         help="print the numbered context the answer was generated from",
     )
     return parser.parse_args()
+
+
+def _top_per_corpus(ranked: list[RankedChunk], n: int) -> list[RetrievedChunk]:
+    """The first n chunks of each corpus, in ranked order."""
+    return [
+        item.chunk
+        for corpus in CORPORA
+        for item in [item for item in ranked if item.chunk.corpus == corpus][:n]
+    ]
 
 
 def _display_evidence(answer: GeneratedAnswer) -> None:

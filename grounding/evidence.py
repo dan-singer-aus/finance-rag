@@ -33,13 +33,13 @@ from psycopg import Connection
 from domain.chunks import RetrievedChunk
 from domain.corpus import Corpus
 from domain.evidence import ClaimSupport, SupportStatus
-from retrieval.pipeline import retrieve
+from retrieval.candidates import find_candidates
 
 SUPPORT_THRESHOLDS: dict[Corpus, float] = {"filings": 0.60, "letters": 0.45}
 
 
 def link_evidence(conn: Connection, claim: str) -> ClaimSupport:
-    results = retrieve(conn, claim)
+    results = find_candidates(conn, claim)
     status = _classify(results)
     return ClaimSupport(claim, status, results)
 
