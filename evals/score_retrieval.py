@@ -10,7 +10,8 @@ from domain.corpus import CORPORA, Corpus
 from domain.queries import CorpusQuery, issued
 from evals.recall_fixtures import RECALL_FIXTURES, GoldSpan, RecallFixture
 from retrieval.candidates import find_candidates
-from retrieval.reranking import PairScorer, rerank
+from retrieval.pipeline import RetrievalConfig
+from retrieval.reranking import rerank
 from retrieval.rewriting import rewrite_query
 
 CONTAINMENT_SQL = """
@@ -21,6 +22,7 @@ CONTAINMENT_SQL = """
 TOP_K = 3
 RESULTS_WINDOW = 100
 DISPLAY_CHUNKS = 5
+DEFAULT_RETRIEVAL = RetrievalConfig(k=RESULTS_WINDOW)
 
 
 @dataclass(frozen=True)
@@ -54,12 +56,10 @@ class RecallResult:
         return self.hits / self.spans
 
 
-def main(
-    k: int = TOP_K, scorer: PairScorer | None = None, rewrite: bool = False
-) -> list[SpanRank]:
+def main(k: int = TOP_K, config: RetrievalConfig = DEFAULT_RETRIEVAL) -> list[SpanRank]:
     """Score recall@k over every fixture, print the report, return the numbers."""
     span_ranks: list[SpanRank] = []
-    for result in score_fixtures(scorer, rewrite=rewrite):
+    for result in score_fixtures(config):
         _display_result(result)
         span_ranks += result.span_ranks
 
@@ -72,8 +72,7 @@ def main(
 
 
 def score_fixtures(
-    scorer: PairScorer | None = None,
-    rewrite: bool = False,
+    config: RetrievalConfig = DEFAULT_RETRIEVAL,
     depths: Sequence[int] = (RESULTS_WINDOW,),
 ) -> Iterator[FixtureResult]:
     """Retrieve, rank and score every fixture, once per candidate depth."""
@@ -85,19 +84,23 @@ def score_fixtures(
             # -- rewrite_query is a non-deterministic model call, so calling
             # it a second time here could decompose the same question two
             # different ways and silently misalign the two steps.
-            rewritten = rewrite_query(conn, fixture.query) if rewrite else None
+            rewritten = rewrite_query(conn, fixture.query) if config.rewrite else None
             # Resolved once, here: what was actually sent per corpus. Everything
             # downstream -- reranking, and the stored run_queries rows -- reads
             # this rather than re-deriving it from `rewritten`, which is how
             # rerank() came to score against a query retrieve() never used.
             issued_queries = issued(fixture.query, rewritten)
             chunks = find_candidates(
-                conn, fixture.query, k=max(depths), rewritten=rewritten
+                conn, fixture.query, k=config.k, rewritten=rewritten
             )
             cosine_ranks = _cosine_ranks(chunks)
             ranked = (
-                rerank(_queries_for(chunks, issued_queries), chunks, scorer)
-                if scorer is not None
+                rerank(
+                    _queries_for(chunks, issued_queries),
+                    chunks,
+                    config.reranker.score_pairs,
+                )
+                if config.reranker is not None
                 else _by_cosine(chunks)
             )
             for depth in depths:

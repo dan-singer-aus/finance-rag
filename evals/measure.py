@@ -28,6 +28,7 @@ from domain.corpus import Corpus
 from domain.queries import CorpusQuery
 from embedding import EMBEDDING_MODEL
 from evals.score_retrieval import (
+    DEFAULT_RETRIEVAL,
     RESULTS_WINDOW,
     TOP_K,
     SpanRank,
@@ -58,8 +59,6 @@ CORPUS_STATS_SQL = """
         (count(*) FILTER (WHERE length(chunk_text) < 120))::int AS under_120
     FROM chunks
 """
-
-DEFAULT_RETRIEVAL = RetrievalConfig(k=RESULTS_WINDOW)
 
 
 @dataclass(frozen=True)
@@ -163,10 +162,7 @@ def _score_and_record(
     # corpus), so accumulating them would insert the same row once per depth.
     queries_by_label: dict[str, dict[Corpus, CorpusQuery]] = {}
     rerank = scoring.retrieval.reranker
-    scorer = rerank.score_pairs if rerank else None
-    for result in score_fixtures(
-        scorer, rewrite=scoring.retrieval.rewrite, depths=scoring.depths
-    ):
+    for result in score_fixtures(scoring.retrieval, depths=scoring.depths):
         ranks_by_depth[result.depth] += result.span_ranks
         queries_by_label[result.fixture.label] = result.issued_queries
 
