@@ -41,7 +41,7 @@ from evals.store import insert_run
 from ingest.chunking import TARGET_SIZE, by_characters, by_line, by_window
 from ingest.pipeline import ingest_corpus
 from retrieval.pipeline import RetrievalConfig
-from retrieval.reranking import Reranker
+from retrieval.reranking import load_reranker
 from retrieval.rewriting import REWRITE_MODEL
 
 CHUNKERS: dict[str, Callable[..., list[str]]] = {
@@ -89,7 +89,7 @@ def main() -> None:
     # Everything still in `args` becomes the chunker's knobs, so a flag that
     # isn't popped is passed to partial() and raises there instead of here.
     requested_depths = args.pop("depths")
-    reranker = _load_reranker() if args.pop("rerank") else None
+    reranker = load_reranker() if args.pop("rerank") else None
     rewrite = args.pop("rewrite")
     repeats = args.pop("repeats")
     depths = (
@@ -233,16 +233,6 @@ def _corpus_stats(conn: Connection) -> dict[str, int]:
         "max_chars": max_chars,
         "under_120": under_120,
     }
-
-
-def _load_reranker() -> Reranker:
-    """Build the cross-encoder reranker, importing torch only if asked for it."""
-    # sentence-transformers lives in the non-default `rerank` group, so a
-    # top-level import would cost every unreranked run a multi-second torch
-    # import and break CI, which is deliberately denied the package.
-    from retrieval.cross_encoder import reranker  # noqa: PLC0415
-
-    return reranker()
 
 
 def _display(run: MeasurementRun, ks: Sequence[int]) -> None:

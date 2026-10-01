@@ -16,6 +16,16 @@ class Reranker:
     model_id: str
 
 
+def load_reranker() -> Reranker:
+    """Build the cross-encoder reranker, importing torch only when asked for."""
+    # sentence-transformers lives in the non-default `rerank` group, so a
+    # top-level import would cost every unreranked run a multi-second torch
+    # import and break CI, which is deliberately denied the package.
+    from retrieval.cross_encoder import reranker  # noqa: PLC0415
+
+    return reranker()
+
+
 def rerank(
     queries: list[str], chunks: list[RetrievedChunk], scorer: PairScorer
 ) -> list[RankedChunk]:
