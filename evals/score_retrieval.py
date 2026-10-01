@@ -7,12 +7,9 @@ from psycopg import Connection
 from db.connection import connection
 from domain.chunks import RankedChunk, RetrievedChunk
 from domain.corpus import CORPORA, Corpus
-from domain.queries import CorpusQuery, issued
+from domain.queries import CorpusQuery
 from evals.recall_fixtures import RECALL_FIXTURES, GoldSpan, RecallFixture
-from retrieval.candidates import find_candidates
-from retrieval.pipeline import RetrievalConfig
-from retrieval.reranking import rerank
-from retrieval.rewriting import rewrite_query
+from retrieval.pipeline import RetrievalConfig, retrieve
 
 CONTAINMENT_SQL = """
     SELECT count(*)::int FROM chunks WHERE strpos(chunk_text, %(excerpt)s) > 0
@@ -80,31 +77,10 @@ def score_fixtures(
     # pointwise, so a shallower depth is a filter over the same scored list.
     with connection() as conn:
         for fixture in RECALL_FIXTURES:
-            # Computed once and reused for both retrieval and reranking below
-            # -- rewrite_query is a non-deterministic model call, so calling
-            # it a second time here could decompose the same question two
-            # different ways and silently misalign the two steps.
-            rewritten = rewrite_query(conn, fixture.query) if config.rewrite else None
-            # Resolved once, here: what was actually sent per corpus. Everything
-            # downstream -- reranking, and the stored run_queries rows -- reads
-            # this rather than re-deriving it from `rewritten`, which is how
-            # rerank() came to score against a query retrieve() never used.
-            issued_queries = issued(fixture.query, rewritten)
-            chunks = find_candidates(
-                conn, fixture.query, k=config.k, rewritten=rewritten
-            )
-            cosine_ranks = _cosine_ranks(chunks)
-            ranked = (
-                rerank(
-                    _queries_for(chunks, issued_queries),
-                    chunks,
-                    config.reranker.score_pairs,
-                )
-                if config.reranker is not None
-                else _by_cosine(chunks)
-            )
+            result = retrieve(conn, fixture.query, config)
+            cosine_ranks = _cosine_ranks(result.candidates)
             for depth in depths:
-                at_depth = _within_depth(ranked, cosine_ranks, depth)
+                at_depth = _within_depth(result.ranked, cosine_ranks, depth)
                 yield FixtureResult(
                     fixture=fixture,
                     depth=depth,
@@ -113,30 +89,8 @@ def score_fixtures(
                         for span in fixture.spans
                     ],
                     ranked=at_depth,
-                    issued_queries=issued_queries,
+                    issued_queries=result.issued_queries,
                 )
-
-
-def _queries_for(
-    chunks: list[RetrievedChunk], issued_queries: dict[Corpus, CorpusQuery]
-) -> list[str]:
-    """Each chunk's own corpus-specific query."""
-    return [_corpus_query(issued_queries, chunk.corpus) for chunk in chunks]
-
-
-def _corpus_query(issued_queries: dict[Corpus, CorpusQuery], corpus: Corpus) -> str:
-    corpus_query = issued_queries[corpus].query
-    if corpus_query is None:
-        raise ValueError(
-            f"find_candidates() returned a chunk from {corpus!r}, "
-            "which the rewriter ruled out"
-        )
-    return corpus_query
-
-
-def _by_cosine(chunks: list[RetrievedChunk]) -> list[RankedChunk]:
-    """Pair each chunk with its cosine score, which is what ordered this list."""
-    return [RankedChunk(chunk=chunk, score=chunk.score) for chunk in chunks]
 
 
 def _cosine_ranks(chunks: list[RetrievedChunk]) -> dict[tuple[int, int], int]:
