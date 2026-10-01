@@ -1,58 +1,66 @@
+from dataclasses import dataclass
+
 from psycopg import Connection
 
-from db.search import search
-from domain.chunks import RetrievedChunk
-from domain.corpus import CORPORA, Corpus
-from domain.queries import RewrittenQueries
-from embedding import embed
+from domain.chunks import RankedChunk, RetrievedChunk
+from domain.corpus import Corpus
+from domain.queries import CorpusQuery, issued
+from domain.retrieval import RetrievalResult
+from retrieval.candidates import DEFAULT_K, find_candidates
+from retrieval.reranking import Reranker, rerank
+from retrieval.rewriting import rewrite_query
 
-DEFAULT_K = 5
-RRF_K = 60
+
+@dataclass(frozen=True)
+class RetrievalConfig:
+    reranker: Reranker | None = None
+    rewrite: bool = False
+    k: int = DEFAULT_K
 
 
 def retrieve(
-    conn: Connection,
-    query: str,
-    k: int = DEFAULT_K,
-    rewritten: RewrittenQueries | None = None,
-) -> list[RetrievedChunk]:
-    # Takes the rewritten result, not a callable that computes it -- a caller
-    # that also reranks needs this same result to build per-chunk queries, and
-    # calling the rewriter a second time there would both waste the call and
-    # risk a different decomposition on each of two non-deterministic calls.
-    # Computed once, up front, only in the no-rewriter case -- so the baseline
-    # arm keeps embedding the query exactly once, byte-identical to before.
-    # Embedding this same text twice is not free: text-embedding-3-small is
-    # not bitwise deterministic between calls, so calling it once per corpus
-    # here would inject noise into an arm that previously had none.
-    shared_embedding = embed([query])[0] if rewritten is None else None
-    scored = []
-
-    for corpus in CORPORA:
-        corpus_query = _query_for(corpus, query, rewritten)
-        if corpus_query is None:
-            continue  # this corpus was ruled out (or a full refusal)
-
-        embedding = (
-            shared_embedding
-            if shared_embedding is not None
-            else embed([corpus_query])[0]
+    conn: Connection, question: str, config: RetrievalConfig
+) -> RetrievalResult:
+    # Computed once and reused for both retrieval and reranking -- rewrite_query
+    # is a non-deterministic model call, so calling it twice could decompose
+    # the same question two different ways and misalign the two steps.
+    rewritten = rewrite_query(conn, question) if config.rewrite else None
+    # Resolved once, here: what was actually sent per corpus. Reranking reads
+    # this rather than re-deriving it from `rewritten`, which is how rerank()
+    # once came to score against a query the search never used.
+    issued_queries = issued(question, rewritten)
+    candidates = find_candidates(conn, question, k=config.k, rewritten=rewritten)
+    ranked = (
+        rerank(
+            _queries_for(candidates, issued_queries),
+            candidates,
+            config.reranker.score_pairs,
         )
-        corpus_results = search(conn, embedding, corpus, k)
-        for rank, chunk in enumerate(corpus_results, start=1):
-            scored.append((chunk, _rrf_score(rank)))
-
-    return [chunk for chunk, _ in sorted(scored, key=lambda x: x[1], reverse=True)]
-
-
-def _query_for(
-    corpus: Corpus, query: str, rewritten: RewrittenQueries | None
-) -> str | None:
-    """Text to embed for one corpus, or None if the corpus was ruled out."""
-    if rewritten is None:
-        return query
-    return rewritten.for_corpus(corpus).query
+        if config.reranker is not None
+        else _by_cosine(candidates)
+    )
+    return RetrievalResult(
+        issued_queries=issued_queries, candidates=candidates, ranked=ranked
+    )
 
 
-def _rrf_score(rank: int) -> float:
-    return 1 / (rank + RRF_K)
+def _queries_for(
+    chunks: list[RetrievedChunk], issued_queries: dict[Corpus, CorpusQuery]
+) -> list[str]:
+    """Each chunk's own corpus-specific query."""
+    return [_corpus_query(issued_queries, chunk.corpus) for chunk in chunks]
+
+
+def _corpus_query(issued_queries: dict[Corpus, CorpusQuery], corpus: Corpus) -> str:
+    corpus_query = issued_queries[corpus].query
+    if corpus_query is None:
+        raise ValueError(
+            f"find_candidates() returned a chunk from {corpus!r}, "
+            "which the rewriter ruled out"
+        )
+    return corpus_query
+
+
+def _by_cosine(chunks: list[RetrievedChunk]) -> list[RankedChunk]:
+    """Pair each chunk with its cosine score, which is what ordered this list."""
+    return [RankedChunk(chunk=chunk, score=chunk.score) for chunk in chunks]
