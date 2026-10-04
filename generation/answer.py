@@ -5,6 +5,9 @@ from prompts import load as load_prompt
 
 MODEL = "gpt-5.5-2026-04-23"
 DEFAULT_PROMPT = "answer"
+# Chunks per corpus the generator is handed. The eval's recall@k defaults to
+# this, so "did the span reach the generator" stays one number.
+CONTEXT_PER_CORPUS = 5
 
 
 def generate(

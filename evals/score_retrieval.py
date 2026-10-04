@@ -9,6 +9,7 @@ from domain.chunks import RankedChunk, RetrievedChunk
 from domain.corpus import CORPORA, Corpus
 from domain.queries import CorpusQuery
 from evals.recall_fixtures import RECALL_FIXTURES, GoldSpan, RecallFixture
+from generation.answer import CONTEXT_PER_CORPUS
 from retrieval.pipeline import RetrievalConfig, retrieve
 
 CONTAINMENT_SQL = """
@@ -16,7 +17,7 @@ CONTAINMENT_SQL = """
 """
 
 
-TOP_K = 3
+TOP_K = CONTEXT_PER_CORPUS
 RESULTS_WINDOW = 100
 DISPLAY_CHUNKS = 5
 DEFAULT_RETRIEVAL = RetrievalConfig(k=RESULTS_WINDOW)
@@ -60,10 +61,10 @@ def main(k: int = TOP_K, config: RetrievalConfig = DEFAULT_RETRIEVAL) -> list[Sp
         _display_result(result)
         span_ranks += result.span_ranks
 
-    merged = [span_rank.merged_rank for span_rank in graded_only(span_ranks)]
-    recall = recall_at(merged, k)
+    ranks = [span_rank.corpus_rank for span_rank in graded_only(span_ranks)]
+    recall = recall_at(ranks, k)
     print(f"\nrecall@{k}: {recall.hits}/{recall.spans} ({recall.recall:.0%})")
-    print(f"MRR: {mrr(merged):.3f}")
+    print(f"MRR: {mrr(ranks):.3f}")
     _display_reachability(span_ranks)
     return span_ranks
 
@@ -156,7 +157,7 @@ def graded_only(span_ranks: Sequence[SpanRank]) -> list[SpanRank]:
 
 def is_reachable(span_rank: SpanRank) -> bool:
     """Survived chunking whole, and reached the candidate window at all."""
-    return span_rank.containable and span_rank.merged_rank is not None
+    return span_rank.containable and span_rank.corpus_rank is not None
 
 
 def recall_at(ranks: list[int | None], k: int) -> RecallResult:
@@ -183,7 +184,7 @@ def _display_result(result: FixtureResult) -> None:
             f"  merged {_rank(span_rank.merged_rank):>4}"
             f"  corpus {_rank(span_rank.corpus_rank):>4}"
         )
-        if span_rank.merged_rank is None:
+        if span_rank.corpus_rank is None:
             _display_miss(span_rank, ranked)
 
 
