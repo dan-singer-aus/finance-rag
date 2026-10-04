@@ -70,7 +70,13 @@ def _parse_args() -> argparse.Namespace:
         "--rerank", action="store_true", help="reorder with the cross-encoder"
     )
     parser.add_argument(
-        "--rewrite", action="store_true", help="decompose the query per corpus"
+        "--rewrite",
+        action=argparse.BooleanOptionalAction,
+        # On by default. Reranked: per-corpus MRR 0.357 -> 0.407 across 49
+        # configs (t 6.5). Unreranked by-line: recall@5 3/11 -> 5/11 in 3 of 3
+        # draws (runs 399 vs 401-403). Mostly two-part questions.
+        default=True,
+        help="decompose the query per corpus (default: on; --no-rewrite to skip)",
     )
     parser.add_argument(
         "--evidence",
