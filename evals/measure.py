@@ -245,16 +245,16 @@ def _display(run: MeasurementRun, ks: Sequence[int]) -> None:
         f"| max {corpus['max_chars']} | under-120 {corpus['under_120']}"
     )
     containment = _containment(run.span_ranks)
-    merged = [span_rank.merged_rank for span_rank in graded_only(run.span_ranks)]
+    ranks = [span_rank.corpus_rank for span_rank in graded_only(run.span_ranks)]
     ceiling = f"{containment['containable']}/{containment['spans']}"
     lost = f"  lost: {', '.join(containment['lost'])}" if containment["lost"] else ""
     print(f"containable: {ceiling}{lost}")
     for k in ks:
-        result = recall_at(merged, k)
+        result = recall_at(ranks, k)
         print(f"recall@{k}: {result.hits}/{result.spans} ({result.recall:.0%})")
-    print(f"MRR: {mrr(merged):.3f}")
-    if len(merged) != len(run.span_ranks):
-        print(f"  (excludes {len(run.span_ranks) - len(merged)} ungraded span(s))")
+    print(f"MRR: {mrr(ranks):.3f}")
+    if len(ranks) != len(run.span_ranks):
+        print(f"  (excludes {len(run.span_ranks) - len(ranks)} ungraded span(s))")
     print(f"\nrun {run.run_id}")
 
 
