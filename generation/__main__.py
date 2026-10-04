@@ -20,16 +20,14 @@ from db.connection import connection
 from domain.answers import GeneratedAnswer
 from domain.chunks import RankedChunk, RetrievedChunk
 from domain.corpus import CORPORA
-from generation.answer import DEFAULT_PROMPT, generate
-from retrieval.candidates import DEFAULT_K
+from generation.answer import CONTEXT_PER_CORPUS, DEFAULT_PROMPT, generate
 from retrieval.pipeline import RetrievalConfig, retrieve
 from retrieval.reranking import load_reranker
 
 # Placeholder policy until corpus routing / a corpus floor exists: hand the
-# generator the same 5-per-corpus it always got, but when reranking, choose
-# those 5 from a deeper candidate set -- depth 50 is where the rerank grid
+# generator CONTEXT_PER_CORPUS chunks per corpus, but when reranking, choose
+# them from a deeper candidate set -- depth 50 is where the rerank grid
 # saturated (progress.md 2026-09-22).
-CONTEXT_PER_CORPUS = DEFAULT_K
 RERANK_DEPTH = 50
 
 
