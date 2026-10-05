@@ -67,7 +67,13 @@ def _parse_args() -> argparse.Namespace:
         help=f"prompt arm in prompts/ (default: {DEFAULT_PROMPT})",
     )
     parser.add_argument(
-        "--rerank", action="store_true", help="reorder with the cross-encoder"
+        "--rerank",
+        action=argparse.BooleanOptionalAction,
+        # On by default: the largest measured retrieval gain (recall@3 4/12 ->
+        # 7/12 on merged rank), and rerank + rewrite is the combination the
+        # 49-config grid measured.
+        default=True,
+        help="reorder with the cross-encoder (default: on; --no-rerank to skip)",
     )
     parser.add_argument(
         "--rewrite",
