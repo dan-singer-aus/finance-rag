@@ -43,10 +43,12 @@ configurations had all failed to beat 4/12.
 # Ingest both corpora: parse → chunk → embed → store
 uv run python -m ingest
 
-# Semantic search over the chunk store; --rerank adds a cross-encoder pass
+# Semantic search over the chunk store; --rerank adds a cross-encoder pass,
+# --rewrite decomposes the question into one query per corpus
 uv run python -m retrieval "What drove Visa's net revenue growth in fiscal 2025?"
 
-# Full retrieval + grounded generation, with citations
+# Full retrieval + grounded generation, with citations. Query rewriting and
+# cross-encoder reranking are on by default; --no-rewrite / --no-rerank skip them
 uv run python -m generation "Is Visa the capital-light kind of business Buffett favours?"
 
 # Eval suites — retrieval-stage (evidence linker, recall@k) and generation-stage
@@ -325,20 +327,21 @@ Curated markdown, committed to the repo, re-fetchable via `scripts/`.
   genuinely different correct answers. Two fiscal years so that stale-source
   handling has a real year-over-year delta to work with.
 - **`corpus/letters/`** — 8 Berkshire Hathaway shareholder letters (~94,000
-  words), chosen by which ideas they argue — economic goodwill, owner earnings,
+  words), **fetched locally and not committed** (see below), chosen by which ideas they argue — economic goodwill, owner earnings,
   economic franchise, businesses that eat capital — rather than by recency.
   Argument-dense prose gives retrieval something to discriminate on; annual
   performance recaps don't.
 
-**Everything in this repository is public.** SEC filings are US government
-works and not subject to copyright; the shareholder letters are published
-freely by Berkshire Hathaway and are used here with attribution and a link to
-source. That's a deliberate constraint rather than a convenience: it's what
-makes the corpus safe to commit, safe to deploy publicly, and safe to show. It
-also ruled things out — earnings-call transcripts would have added a genuinely
-useful third document shape, but the accessible sources either bar scraping or
-gate redistribution behind a separate agreement, so they're excluded on
-licensing grounds rather than on capability.
+**Licensing.** SEC filings are US government works and not subject to
+copyright, so `corpus/filings/` is committed. The shareholder letters are
+copyrighted by Berkshire Hathaway: being freely readable online is not the same
+as being free to redistribute. So the repository contains **no letter text** —
+`scripts/fetch_letters.py` downloads them from berkshirehathaway.com into your
+local checkout for research use, and every converted file records its source
+URL. Short excerpts appear in the evaluation fixtures as quoted ground truth.
+The same constraint ruled out earnings-call transcripts, which would have added
+a useful third document shape: the accessible sources either bar scraping or
+gate redistribution behind a separate agreement.
 
 The corpus is small on purpose. Chunking means corpus size doesn't compete for
 context — only the top-_k_ reaches the model — so the binding constraint isn't
@@ -356,7 +359,8 @@ Requires Docker, [uv](https://docs.astral.sh/uv/), and an OpenAI API key.
 cp .env.example .env
 
 docker compose up -d                    # Postgres 17 + pgvector on localhost:5434
-uv sync
+uv sync                                 # includes the reranker (sentence-transformers + torch)
+uv run python scripts/fetch_letters.py 1983 1987 1989 1991 1992 1995 1996 2007
 uv run python scripts/migrate.py
 uv run python -m ingest                 # ~$0.01 in embedding calls
 ```
@@ -365,8 +369,11 @@ Then any of the commands under [Status](#status-in-progress). Postgres is on
 port **5434** to avoid colliding with other local containers; a pgweb console
 comes up alongside it on **localhost:8081**.
 
-Embeddings use `text-embedding-3-small` (1536 dimensions); generation uses a
-pinned GPT-5.5 snapshot. Re-embedding the entire corpus costs well under a cent,
+Embeddings use `text-embedding-3-small` (1536 dimensions); generation and query
+rewriting use a pinned GPT-5.5 snapshot; reranking runs
+`ms-marco-MiniLM-L6-v2` locally, pinned to a model revision. The first reranked
+query downloads the model (~90 MB) from Hugging Face. To skip the torch install
+entirely, `uv sync --no-group rerank` and pass `--no-rerank`. Re-embedding the entire corpus costs well under a cent,
 which is deliberate — it means chunking strategy can be changed and re-measured
 freely.
 

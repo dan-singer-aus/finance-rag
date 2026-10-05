@@ -17,6 +17,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "beautifulsoup4>=4.15.0",
+    "brotli>=1.2.0",
     "markdownify>=1.2.3",
     "mypy>=2.3.1",
     "pypdf>=6.14.2",
@@ -31,6 +32,9 @@ rerank = [
 [tool.uv]
 # Not a distributable package — just an env + deps. Run modules with `uv run`.
 package = false
+# Reranking is part of the default answer path, so a plain `uv sync` installs
+# it. CI opts out (--no-group rerank): torch is gigabytes and the tests use a fake.
+default-groups = ["dev", "rerank"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -147,10 +151,16 @@ warn_unused_configs = true
 module = ["frontmatter.*"]
 ignore_missing_imports = true
 
-# sentence-transformers sits in a non-default dependency group, so CI never
-# installs it — which is the point. mypy must not fail on an import it has been
+# sentence-transformers is in the `rerank` group, which CI skips (--no-group
+# rerank) — which is the point. mypy must not fail on an import it has been
 # deliberately denied. The cost is that the vendor surface types as Any, which is
 # why cross_encoder.py casts its numpy scalars to int and float at the boundary.
 [[tool.mypy.overrides]]
 module = ["sentence_transformers.*"]
+ignore_missing_imports = true
+
+# brotli ships no type information; only scripts/fetch_letters.py uses it, to
+# decode the one letter Berkshire serves compressed.
+[[tool.mypy.overrides]]
+module = ["brotli"]
 ignore_missing_imports = true

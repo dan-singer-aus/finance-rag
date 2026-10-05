@@ -23,3 +23,7 @@ npm-debug.log*
 
 # working notes — kept local
 docs/
+
+# Berkshire letters are copyrighted — fetched locally, never committed.
+# Run: uv run python scripts/fetch_letters.py 1983 1987 1989 1991 1992 1995 1996 2007
+corpus/letters/*.md

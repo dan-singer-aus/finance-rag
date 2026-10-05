@@ -39,7 +39,7 @@ jobs:
       - name: Install dependencies
         # --frozen fails rather than silently resolving a different set, so a
         # stale uv.lock is a CI failure instead of an untested dependency tree.
-        run: uv sync --frozen
+        run: uv sync --frozen --no-group rerank
 
       - name: Lint
         run: uv run ruff check .
