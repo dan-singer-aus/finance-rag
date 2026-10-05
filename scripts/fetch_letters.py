@@ -31,6 +31,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import brotli
+
 OUT_DIR = Path(__file__).resolve().parent.parent / "corpus" / "letters"
 BASE = "https://www.berkshirehathaway.com/letters"
 
@@ -56,6 +58,11 @@ def _get(url: str) -> bytes | None:
                 return None
             # See fetch_filings._get — .read() is Any off a union return type.
             body: bytes = response.read()
+            # urllib never asks for compression, but Berkshire's server sends some
+            # years (1996) brotli-encoded regardless; undecoded, the "letter" is
+            # binary noise that still passes the size check.
+            if response.headers.get("Content-Encoding") == "br":
+                body = brotli.decompress(body)
             return body
     except (urllib.error.URLError, TimeoutError):
         # A URL that doesn't resolve is an EXPECTED outcome here — this function
